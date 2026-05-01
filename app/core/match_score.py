@@ -247,14 +247,24 @@ def listar_oportunidades(
             sql += " AND c.cod_servicio_aidu IS NOT NULL"
         
         sql += " LIMIT ?"
-        params.append(limit * 3)  # Pedir 3x para luego filtrar por score
+        params.append(limit * 5)  # Pedir 5x para luego deduplicar y filtrar por score
         
         rows = conn.execute(sql, params).fetchall()
         
-        # Calcular match score para cada una
-        oportunidades = []
+        # Deduplicar por codigo_externo (una licitación puede tener múltiples categorizaciones)
+        # Nos quedamos con la de mayor confianza
+        vistos = {}
         for r in rows:
             lic = dict(r)
+            codigo = lic["codigo_externo"]
+            confianza = lic.get("confianza") or 0
+            
+            if codigo not in vistos or confianza > (vistos[codigo].get("confianza") or 0):
+                vistos[codigo] = lic
+        
+        # Calcular match score para cada una (solo únicas)
+        oportunidades = []
+        for lic in vistos.values():
             match = calcular_match_score(lic)
             
             if match["score"] < score_min:
