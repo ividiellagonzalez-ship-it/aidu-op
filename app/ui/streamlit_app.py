@@ -572,7 +572,7 @@ st.divider()
 # TABS PRINCIPALES
 # ============================================================
 tab_cartera, tab_buscar, tab_intel, tab_sistema = st.tabs([
-    "📂 Cartera", "🔍 Buscar", "📊 Inteligencia", "⚙️ Sistema"
+    "📂 Cartera", "🎯 Oportunidades", "📊 Inteligencia", "⚙️ Sistema"
 ])
 
 
@@ -668,56 +668,154 @@ with tab_cartera:
 # ====================
 # TAB 2: BUSCAR
 # ====================
+# TAB 2: OPORTUNIDADES (rediseñado)
+# ====================
 with tab_buscar:
-    st.subheader("🔍 Búsqueda en histórico Mercado Público")
+    st.subheader("🎯 Oportunidades de mercado")
+    st.caption("Licitaciones del histórico MP que calzan con tu perfil AIDU. Convierte las que te interesen a tu cartera.")
 
-    col_q, col_btn = st.columns([3, 1])
-    query = col_q.text_input(
-        "Buscar",
-        placeholder="ej: estructural, dashboard, procesos...",
-        label_visibility="collapsed"
+    from app.core.match_score import (
+        listar_oportunidades, categorias_disponibles, regiones_disponibles,
+        convertir_a_proyecto
     )
 
-    conn = get_connection()
-    if query:
-        like = f"%{query}%"
-        results = conn.execute("""
-            SELECT l.*, GROUP_CONCAT(c.cod_servicio_aidu, ', ') as categorias
-            FROM mp_licitaciones_adj l
-            LEFT JOIN mp_categorizacion_aidu c ON l.codigo_externo = c.codigo_externo
-            WHERE l.nombre LIKE ? OR l.organismo LIKE ? OR l.descripcion LIKE ?
-            GROUP BY l.codigo_externo
-            ORDER BY l.fecha_descarga DESC LIMIT 50
-        """, (like, like, like)).fetchall()
-    else:
-        results = conn.execute("""
-            SELECT l.*, GROUP_CONCAT(c.cod_servicio_aidu, ', ') as categorias
-            FROM mp_licitaciones_adj l
-            LEFT JOIN mp_categorizacion_aidu c ON l.codigo_externo = c.codigo_externo
-            GROUP BY l.codigo_externo
-            ORDER BY l.fecha_descarga DESC LIMIT 30
-        """).fetchall()
-    conn.close()
+    # ----- Filtros laterales en columnas -----
+    col_filtros, col_resultados = st.columns([1, 3])
 
-    if not results:
-        st.info("📭 Sin resultados.")
-    else:
-        st.caption(f"Mostrando {len(results)} licitaciones")
-        for r in results:
-            with st.container(border=True):
-                col1, col2, col3 = st.columns([3, 1, 1])
-                col1.markdown(f"""
-                **{r['nombre']}**
-                <span style='color:#1E40AF; font-weight:600; font-size:11px;'>{r['categorias'] or '(sin categoría)'}</span>
-                <br><span style='color:#64748B; font-size:12px;'>🏛️ {r['organismo'] or '-'} · 📍 {r['region'] or '-'}</span>
-                <br><span style='color:#94A3B8; font-family:monospace; font-size:11px;'>{r['codigo_externo']}</span>
-                """, unsafe_allow_html=True)
+    with col_filtros:
+        st.markdown("##### 🔧 Filtros")
 
-                if r["monto_referencial"]:
-                    col2.metric("Referencial", formato_clp(r["monto_referencial"]))
-                if r["monto_adjudicado"]:
-                    desc = ((r["monto_adjudicado"] - (r["monto_referencial"] or r["monto_adjudicado"])) / (r["monto_referencial"] or 1)) * 100
-                    col3.metric("Adjudicado", formato_clp(r["monto_adjudicado"]), f"{desc:.1f}%")
+        # Categoría AIDU
+        cats = categorias_disponibles()
+        cat_options = ["Todas"] + [f"{c[0]} ({c[1]})" for c in cats]
+        cat_sel_label = st.selectbox("Categoría AIDU", cat_options, key="op_cat")
+        cat_sel = "Todas" if cat_sel_label == "Todas" else cat_sel_label.split(" ")[0]
+
+        # Región
+        regs = regiones_disponibles()
+        reg_options = ["Todas"] + [f"{r[0][:30]} ({r[1]})" for r in regs]
+        reg_sel_label = st.selectbox("Región", reg_options, key="op_reg")
+        reg_sel = "Todas" if reg_sel_label == "Todas" else reg_sel_label.split(" (")[0]
+
+        # Monto
+        st.caption("Monto referencial (M CLP)")
+        col_min, col_max = st.columns(2)
+        monto_min_m = col_min.number_input(
+            "Min", min_value=0, max_value=500, value=3, step=1,
+            label_visibility="collapsed", key="op_min"
+        )
+        monto_max_m = col_max.number_input(
+            "Max", min_value=0, max_value=500, value=15, step=1,
+            label_visibility="collapsed", key="op_max"
+        )
+
+        # Match score mínimo
+        score_min = st.slider("Match Score mín.", 0, 100, 50, 5, key="op_score")
+
+        # Orden
+        orden_label = st.selectbox(
+            "Ordenar por",
+            ["Match Score (alto→bajo)", "Monto (mayor)", "Fecha (más reciente)"],
+            key="op_orden"
+        )
+        orden_map = {
+            "Match Score (alto→bajo)": "score_desc",
+            "Monto (mayor)": "monto_desc",
+            "Fecha (más reciente)": "fecha_desc",
+        }
+
+        # Solo no-en-cartera
+        solo_nuevas = st.checkbox(
+            "Solo no-en-cartera", value=True, key="op_no_cart",
+            help="Excluye licitaciones que ya tienes como proyecto AIDU"
+        )
+
+    # ----- Resultados -----
+    with col_resultados:
+        oportunidades = listar_oportunidades(
+            filtro_categoria=cat_sel,
+            filtro_region=reg_sel,
+            monto_min=monto_min_m * 1_000_000 if monto_min_m > 0 else None,
+            monto_max=monto_max_m * 1_000_000 if monto_max_m > 0 else None,
+            score_min=score_min,
+            solo_no_en_cartera=solo_nuevas,
+            orden=orden_map[orden_label],
+            limit=50
+        )
+
+        if not oportunidades:
+            st.info("📭 Sin oportunidades con estos filtros. Prueba ampliar el rango de monto o bajar el score mínimo.")
+        else:
+            st.markdown(f"**{len(oportunidades)} oportunidades** · ordenadas por {orden_label.lower()}")
+
+            for op in oportunidades:
+                m = op["match"]
+                score = m["score"]
+                desg = m["desglose"]
+
+                # Color del score
+                if score >= 80:
+                    score_color = "#15803D"  # verde
+                    score_bg = "#DCFCE7"
+                elif score >= 60:
+                    score_color = "#854F0B"  # ámbar
+                    score_bg = "#FEF3C7"
+                else:
+                    score_color = "#64748B"  # gris
+                    score_bg = "#F1F5F9"
+
+                with st.container(border=True):
+                    col_main, col_money, col_action = st.columns([3.5, 1.5, 1])
+
+                    # Bloque principal
+                    with col_main:
+                        st.markdown(f"""
+                        <div style='display:flex; gap:6px; align-items:center; margin-bottom:4px;'>
+                            <span style='background:{score_bg}; color:{score_color}; font-size:11px; padding:2px 10px; border-radius:12px; font-weight:600;'>Match {score}</span>
+                            <span style='background:#E0F2FE; color:#0C4A6E; font-size:11px; padding:2px 8px; border-radius:12px;'>{op.get('cod_servicio_aidu') or 'Sin cat.'}</span>
+                            <span style='color:#94A3B8; font-family:monospace; font-size:11px;'>{op['codigo_externo']}</span>
+                        </div>
+                        <div style='font-size:14px; font-weight:600; color:#1E293B; margin-bottom:2px;'>{op['nombre'][:120]}</div>
+                        <div style='font-size:12px; color:#64748B;'>🏛️ {op.get('organismo') or '-'} · 📍 {op.get('region') or '-'}</div>
+                        <div style='font-size:11px; color:#94A3B8; margin-top:4px;'>
+                            Categoría: {desg['categoria'][1]} · Región: {desg['region'][1]} · Monto: {desg['monto'][1]} · Mandante: {desg['mandante'][1]}
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # Bloque monto
+                    with col_money:
+                        if op.get("monto_referencial"):
+                            st.markdown(f"""
+                            <div style='text-align:right;'>
+                                <div style='font-size:11px; color:#64748B;'>Referencial</div>
+                                <div style='font-size:16px; font-weight:600; color:#1E40AF;'>{formato_clp(op['monto_referencial'])}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        if op.get("monto_adjudicado") and op.get("monto_referencial"):
+                            desc = ((op["monto_adjudicado"] - op["monto_referencial"]) / op["monto_referencial"]) * 100
+                            color_desc = "#DC2626" if desc < -5 else "#15803D"
+                            st.markdown(f"""
+                            <div style='text-align:right; margin-top:4px;'>
+                                <div style='font-size:11px; color:#64748B;'>Adjudicado</div>
+                                <div style='font-size:13px; color:{color_desc};'>{formato_clp(op['monto_adjudicado'])} ({desc:+.1f}%)</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    # Bloque acción
+                    with col_action:
+                        st.write("")  # spacer
+                        if st.button(
+                            "+ Cartera",
+                            key=f"add_cart_{op['codigo_externo']}",
+                            use_container_width=True,
+                            help="Convierte esta oportunidad en proyecto AIDU (estado PROSPECTO)"
+                        ):
+                            try:
+                                pid = convertir_a_proyecto(op["codigo_externo"])
+                                st.success(f"✅ Agregado a cartera (proyecto #{pid})")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
 
 
 # ====================
