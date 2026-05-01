@@ -11,7 +11,7 @@ import anthropic
 
 from app.db.migrator import get_connection
 from app.core.inteligencia_precios import calcular_escenarios_precio, obtener_estadisticas_categoria
-from config.settings import ANTHROPIC_API_KEY
+from config.settings import get_anthropic_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,10 @@ def analizar_proyecto_con_ia(proyecto_id: int) -> Dict:
     Una llamada Claude que analiza el proyecto en su contexto completo.
     Devuelve análisis estratégico con recomendaciones accionables.
     """
-    api_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
+    api_key = get_anthropic_api_key()
     if not api_key:
         return {
-            "error": "API key de Claude no configurada en ~/AIDU_Op/config/secrets.env",
+            "error": "API key de Claude no configurada. En Streamlit Cloud: Settings → Secrets → ANTHROPIC_API_KEY",
             "analisis": None
         }
 
