@@ -697,16 +697,18 @@ with tab_buscar:
         reg_sel_label = st.selectbox("Región", reg_options, key="op_reg")
         reg_sel = "Todas" if reg_sel_label == "Todas" else reg_sel_label.split(" (")[0]
 
-        # Monto
-        st.caption("Monto referencial (M CLP)")
+        # Monto - SIN restricción por defecto (tú decides)
+        st.caption("Monto referencial (M CLP) · 0 = sin filtro")
         col_min, col_max = st.columns(2)
         monto_min_m = col_min.number_input(
-            "Min", min_value=0, max_value=500, value=3, step=1,
-            label_visibility="collapsed", key="op_min"
+            "Min", min_value=0, max_value=500, value=0, step=1,
+            label_visibility="collapsed", key="op_min",
+            help="0 = sin mínimo"
         )
         monto_max_m = col_max.number_input(
-            "Max", min_value=0, max_value=500, value=15, step=1,
-            label_visibility="collapsed", key="op_max"
+            "Max", min_value=0, max_value=500, value=0, step=1,
+            label_visibility="collapsed", key="op_max",
+            help="0 = sin máximo"
         )
 
         # Match score mínimo
@@ -740,13 +742,24 @@ with tab_buscar:
             score_min=score_min,
             solo_no_en_cartera=solo_nuevas,
             orden=orden_map[orden_label],
-            limit=50
+            limit=100
         )
 
         if not oportunidades:
-            st.info("📭 Sin oportunidades con estos filtros. Prueba ampliar el rango de monto o bajar el score mínimo.")
+            st.info("📭 Sin oportunidades con estos filtros. Prueba poner Monto Min/Max en 0 (sin filtro) o bajar el Match Score mínimo.")
         else:
-            st.markdown(f"**{len(oportunidades)} oportunidades** · ordenadas por {orden_label.lower()}")
+            # Contador del universo total
+            from app.core.match_score import listar_oportunidades as _lis_all
+            try:
+                total_universo = len(_lis_all(score_min=0, monto_min=None, monto_max=None, solo_no_en_cartera=solo_nuevas, limit=2000))
+            except Exception:
+                total_universo = len(oportunidades)
+            
+            st.markdown(
+                f"**{len(oportunidades)} oportunidades** mostradas "
+                f"<span style='color:#94A3B8; font-size:12px;'>de {total_universo} disponibles · ordenadas por {orden_label.lower()}</span>",
+                unsafe_allow_html=True
+            )
 
             for idx, op in enumerate(oportunidades):
                 m = op["match"]
@@ -777,8 +790,11 @@ with tab_buscar:
                         </div>
                         <div style='font-size:14px; font-weight:600; color:#1E293B; margin-bottom:2px;'>{op['nombre'][:120]}</div>
                         <div style='font-size:12px; color:#64748B;'>🏛️ {op.get('organismo') or '-'} · 📍 {op.get('region') or '-'}</div>
-                        <div style='font-size:11px; color:#94A3B8; margin-top:4px;'>
-                            Categoría: {desg['categoria'][1]} · Región: {desg['region'][1]} · Monto: {desg['monto'][1]} · Mandante: {desg['mandante'][1]}
+                        <div style='font-size:12px; color:#475569; margin-top:6px; line-height:1.4; padding:6px 8px; background:#F8FAFC; border-left:2px solid #CBD5E1; border-radius:3px;'>
+                            {(op.get('descripcion') or 'Sin descripción disponible. Revisa las bases en Mercado Público.')[:280]}{'…' if (op.get('descripcion') or '') and len(op.get('descripcion') or '') > 280 else ''}
+                        </div>
+                        <div style='font-size:11px; color:#94A3B8; margin-top:6px;'>
+                            🎯 Categoría: {desg['categoria'][1]} · 📍 Región: {desg['region'][1]} · 💰 Monto: {desg['monto'][1]} · 🏢 Mandante: {desg['mandante'][1]}
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -816,6 +832,13 @@ with tab_buscar:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
+                        
+                        # Link directo a Mercado Público (las bases técnicas reales)
+                        mp_url = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={op['codigo_externo']}"
+                        st.markdown(
+                            f"<a href='{mp_url}' target='_blank' style='display:block; text-align:center; font-size:11px; color:#1E40AF; text-decoration:none; padding:4px 0; margin-top:4px; border:0.5px solid #CBD5E1; border-radius:6px;'>🔗 Ver en MP</a>",
+                            unsafe_allow_html=True
+                        )
 
 
 # ====================
