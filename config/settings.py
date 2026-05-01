@@ -67,10 +67,10 @@ if IS_STREAMLIT_CLOUD and not DB_PATH.exists():
 # ============================================================
 def _load_env():
     """Carga variables desde:
-    1. st.secrets si está corriendo en Streamlit Cloud
+    1. st.secrets si está corriendo en Streamlit Cloud (PRIORIDAD MÁXIMA)
     2. secrets.env local (formato KEY=VALUE) si es instalación local
     """
-    # Intento 1: Streamlit Cloud secrets
+    # Intento 1: Streamlit Cloud secrets (FUERZA sobrescribir)
     try:
         import streamlit as st
         if hasattr(st, "secrets"):
@@ -78,7 +78,8 @@ def _load_env():
                 try:
                     val = st.secrets.get(k)
                     if val:
-                        os.environ.setdefault(k, str(val))
+                        # Asignación directa (sobrescribe siempre)
+                        os.environ[k] = str(val).strip()
                 except Exception:
                     pass
     except ImportError:
@@ -86,7 +87,7 @@ def _load_env():
     except Exception:
         pass  # st.secrets falla cuando no estamos en contexto Streamlit
     
-    # Intento 2: archivo local (modo desarrollo)
+    # Intento 2: archivo local (modo desarrollo, sin sobrescribir cloud)
     if not SECRETS_FILE.exists():
         return
     for line in SECRETS_FILE.read_text(encoding="utf-8").splitlines():
@@ -94,12 +95,37 @@ def _load_env():
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
+        # Limpiar comillas si las hay
+        val = v.strip().strip('"').strip("'")
+        os.environ.setdefault(k.strip(), val)
 
 _load_env()
 
+
+# ============================================================
+# Funciones lazy para leer secretos (Streamlit Cloud safe)
+# st.secrets puede no estar disponible al momento del primer import
+# ============================================================
+def get_mp_ticket() -> str:
+    """Lee MP_TICKET fresco; re-intenta cargar si está vacío."""
+    val = os.environ.get("MP_TICKET", "").strip()
+    if not val:
+        _load_env()
+        val = os.environ.get("MP_TICKET", "").strip()
+    return val
+
+
+def get_anthropic_api_key() -> str:
+    """Lee ANTHROPIC_API_KEY fresco; re-intenta cargar si está vacío."""
+    val = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not val:
+        _load_env()
+        val = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    return val
+
+
 MP_API_BASE = "https://api.mercadopublico.cl/servicios/v1/publico"
-MP_TICKET = os.getenv("MP_TICKET", "")  # Se setea en secrets.env
+MP_TICKET = os.getenv("MP_TICKET", "")  # legacy; preferir get_mp_ticket()
 MP_TICKET_DEMO = "F8537A18-6766-4DEF-9E59-426B4FEE2844"  # Fallback público
 
 # Rate limiting: conservador para no quemar el ticket
