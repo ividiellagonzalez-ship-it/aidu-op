@@ -748,7 +748,7 @@ with tab_buscar:
         else:
             st.markdown(f"**{len(oportunidades)} oportunidades** · ordenadas por {orden_label.lower()}")
 
-            for op in oportunidades:
+            for idx, op in enumerate(oportunidades):
                 m = op["match"]
                 score = m["score"]
                 desg = m["desglose"]
@@ -806,7 +806,7 @@ with tab_buscar:
                         st.write("")  # spacer
                         if st.button(
                             "+ Cartera",
-                            key=f"add_cart_{op['codigo_externo']}",
+                            key=f"add_cart_{idx}_{op['codigo_externo']}",
                             use_container_width=True,
                             help="Convierte esta oportunidad en proyecto AIDU (estado PROSPECTO)"
                         ):
