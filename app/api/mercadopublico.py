@@ -21,9 +21,10 @@ from typing import Optional, List, Dict, Any
 from collections import deque
 
 from config.settings import (
-    MP_API_BASE, MP_TICKET, MP_TICKET_DEMO,
+    MP_API_BASE, MP_TICKET_DEMO,
     MP_REQUESTS_PER_MINUTE, MP_REQUEST_TIMEOUT,
-    MP_MAX_RETRIES, MP_RETRY_BACKOFF, RAW_DIR
+    MP_MAX_RETRIES, MP_RETRY_BACKOFF, RAW_DIR,
+    get_mp_ticket
 )
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,8 @@ class MercadoPublicoClient:
     """Cliente con rate limiting interno usando ventana deslizante"""
 
     def __init__(self, ticket: Optional[str] = None, save_raw: bool = True):
-        self.ticket = ticket or MP_TICKET or MP_TICKET_DEMO
+        # Lazy fetch del ticket — funciona en Streamlit Cloud
+        self.ticket = ticket or get_mp_ticket() or MP_TICKET_DEMO
         self.save_raw = save_raw
         self._request_times = deque(maxlen=MP_REQUESTS_PER_MINUTE)
         self.session = requests.Session()
