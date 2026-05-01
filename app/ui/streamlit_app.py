@@ -474,7 +474,11 @@ def render_detalle_proyecto(proyecto_id: int):
             if ia:
                 if ia.get('error'):
                     st.error(f"⚠️ {ia['error']}")
-                    st.caption("Configura tu API key en `~/AIDU_Op/config/secrets.env`")
+                    from config.settings import IS_STREAMLIT_CLOUD as _IS_CLOUD
+                    if _IS_CLOUD:
+                        st.caption("Configura `ANTHROPIC_API_KEY` en Streamlit Cloud → Manage app → Settings → Secrets")
+                    else:
+                        st.caption("Configura tu API key en `~/AIDU_Op/config/secrets.env`")
                 else:
                     st.markdown(ia['analisis'])
                     st.caption(
@@ -797,7 +801,13 @@ with tab_sistema:
 
     st.divider()
     st.markdown("##### 📥 Descargar datos REALES de Mercado Público")
-    st.caption("Requiere ticket configurado en `~/AIDU_Op/config/secrets.env`")
+    
+    # Mensaje según contexto (cloud o local)
+    from config.settings import IS_STREAMLIT_CLOUD, get_mp_ticket
+    if IS_STREAMLIT_CLOUD:
+        st.caption("Requiere ticket configurado en Streamlit Cloud → Settings → Secrets → `MP_TICKET`")
+    else:
+        st.caption("Requiere ticket configurado en `~/AIDU_Op/config/secrets.env`")
 
     col_dias, col_btn = st.columns([1, 1])
 
@@ -812,9 +822,12 @@ with tab_sistema:
         st.write("")  # spacer
         st.write("")  # spacer
         if st.button("🚀 Descargar ahora", use_container_width=True, type="primary"):
-            mp_ticket = os.getenv("MP_TICKET", "")
+            mp_ticket = get_mp_ticket()
             if not mp_ticket or "tu-ticket" in mp_ticket:
-                st.error("⚠️ Configura tu MP_TICKET en `~/AIDU_Op/config/secrets.env` primero")
+                if IS_STREAMLIT_CLOUD:
+                    st.error("⚠️ Configura `MP_TICKET` en Streamlit Cloud → Manage app → Settings → Secrets")
+                else:
+                    st.error("⚠️ Configura tu MP_TICKET en `~/AIDU_Op/config/secrets.env` primero")
             else:
                 with st.spinner(f"Descargando últimos {dias_descarga} días..."):
                     try:
