@@ -1,0 +1,43 @@
+name: Tests CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Inicializar BD test (con migraciones)
+        run: |
+          python -c "from app.db.migrator import get_connection; get_connection().close()"
+      
+      - name: Ejecutar tests con coverage
+        env:
+          ANTHROPIC_API_KEY: 'test-key-not-real'
+        run: |
+          pytest tests/ -v --cov=app --cov-report=term --cov-report=xml
+      
+      - name: Mostrar resumen
+        if: always()
+        run: |
+          echo "Tests completados a las $(date)"

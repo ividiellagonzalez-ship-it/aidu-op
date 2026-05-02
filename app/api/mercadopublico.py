@@ -167,3 +167,45 @@ class MercadoPublicoClient:
             actual += timedelta(days=1)
 
         return total
+
+    # ============================================================
+    # NUEVO v7: LICITACIONES VIGENTES (publicadas, no adjudicadas)
+    # ============================================================
+
+    def listar_vigentes_por_fecha(self, fecha: date) -> List[Dict]:
+        """
+        Lista licitaciones PUBLICADAS (vigentes) en una fecha específica.
+        Estas son las oportunidades activas para postular ahora.
+        """
+        fecha_str = fecha.strftime("%d%m%Y")
+        params = {"fecha": fecha_str, "estado": "publicada"}
+
+        data = self._request(params)
+        if not data:
+            return []
+
+        listado = data.get("Listado", [])
+        logger.info(f"🟢 {fecha} · {len(listado)} vigentes")
+
+        if self.save_raw and listado:
+            cache_file = RAW_DIR / f"{fecha:%Y%m%d}_vigentes.json"
+            cache_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+
+        return listado
+
+    def descargar_vigentes_recientes(self, dias_atras: int = 7) -> List[Dict]:
+        """
+        Descarga todas las licitaciones publicadas en los últimos N días.
+        Llamada típica desde el cron diario 7am.
+        """
+        hoy = date.today()
+        todas = []
+        for i in range(dias_atras):
+            fecha = hoy - timedelta(days=i)
+            licitaciones = self.listar_vigentes_por_fecha(fecha)
+            todas.extend(licitaciones)
+        logger.info(f"📊 Total vigentes últimos {dias_atras} días: {len(todas)}")
+        return todas

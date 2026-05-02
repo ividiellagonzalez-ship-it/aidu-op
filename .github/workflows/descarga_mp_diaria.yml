@@ -1,0 +1,41 @@
+name: Descarga Diaria Mercado Público
+
+on:
+  schedule:
+    # 7am Chile (UTC-4 en verano, UTC-3 en invierno)
+    # Configurado a 11:00 UTC = 7:00 Chile invierno
+    - cron: '0 11 * * *'
+  workflow_dispatch:  # Permite ejecución manual desde UI de GitHub
+
+jobs:
+  descarga:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Ejecutar descarga MP
+        env:
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -m app.core.descarga_diaria
+      
+      - name: Notificar resultado en logs
+        if: always()
+        run: |
+          echo "✅ Job completado a las $(date)"

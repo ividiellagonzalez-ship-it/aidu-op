@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.db.migrator import get_connection
+from app.db.migrator import get_connection, run_migrations
 from app.core.backfill import estado_actual
 from app.core.inteligencia_precios import (
     calcular_escenarios_precio,
@@ -35,6 +35,25 @@ from app.core.inteligencia_precios import (
     licitaciones_similares,
 )
 from config.settings import get_version, AIDU_HOME
+
+
+# ============================================================
+# Aplicar migraciones pendientes al inicio (idempotente)
+# ============================================================
+@st.cache_resource
+def _ensure_migrations_applied():
+    """Aplica migraciones pendientes una sola vez por sesión Streamlit."""
+    try:
+        n, applied = run_migrations()
+        if n > 0:
+            print(f"✅ Aplicadas {n} migraciones: {applied}")
+        return True
+    except Exception as e:
+        print(f"⚠️ Error aplicando migraciones: {e}")
+        return False
+
+
+_ensure_migrations_applied()
 
 
 # ============================================================
@@ -909,14 +928,386 @@ def _mostrar_error_tab(nombre_tab: str, error: Exception):
         st.code(_tb.format_exc(), language="python")
 
 
-tab_cartera, tab_buscar, tab_intel, tab_sistema = st.tabs([
-    "📂 Cartera", "🎯 Oportunidades", "📊 Inteligencia", "⚙️ Sistema"
-])
+# ============================================================
+# NAVEGACIÓN PRINCIPAL — Sidebar (v7 mejora UX)
+# ============================================================
+
+# CSS adicional para sidebar profesional
+st.markdown("""
+<style>
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #FAFAFA 0%, #F5F5F5 100%);
+    border-right: 1px solid #E5E7EB;
+}
+[data-testid="stSidebar"] .stRadio > label {
+    font-size: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin: 2px 0;
+    transition: all 0.15s ease;
+}
+[data-testid="stSidebar"] .stRadio > label:hover {
+    background: #F1F5F9;
+}
+.aidu-sidebar-header {
+    padding: 16px 12px 8px;
+    border-bottom: 1px solid #E5E7EB;
+    margin-bottom: 16px;
+}
+.aidu-sidebar-stat {
+    padding: 8px 12px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #E5E7EB;
+    margin: 4px 0;
+    font-size: 12px;
+}
+.aidu-sidebar-stat strong {
+    color: #1E40AF;
+    font-size: 16px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Importar stats vigentes para el sidebar (lazy)
+try:
+    from app.core.descarga_diaria import stats_vigentes as _stats_vigentes_func
+    _stats_vig = _stats_vigentes_func()
+except Exception:
+    _stats_vig = {"total_vigentes": 0, "publicadas_24h": 0, "cierran_proximos_3_dias": 0, "con_match_aidu": 0}
+
+with st.sidebar:
+    st.markdown("""
+    <div class="aidu-sidebar-header">
+        <div style="font-size:18px; font-weight:700; color:#1E40AF;">● AIDU Op</div>
+        <div style="font-size:11px; color:#64748B;">Sistema Comercial B2G · v2.1.0-MVP</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    seccion = st.radio(
+        "Navegación",
+        ["🔥 Hoy", "📂 Cartera", "🎯 Oportunidades", "📊 Inteligencia", "⚙️ Configuración", "🛠️ Sistema"],
+        label_visibility="collapsed",
+        key="nav_principal",
+    )
+    
+    st.divider()
+    
+    st.markdown("##### 📡 Estado en vivo")
+    st.markdown(f"""
+    <div class="aidu-sidebar-stat">
+        🟢 Vigentes hoy: <strong>{_stats_vig['publicadas_24h']}</strong>
+    </div>
+    <div class="aidu-sidebar-stat">
+        🟡 Cierran &lt;3 días: <strong>{_stats_vig['cierran_proximos_3_dias']}</strong>
+    </div>
+    <div class="aidu-sidebar-stat">
+        🎯 Match AIDU: <strong>{_stats_vig['con_match_aidu']}</strong>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+    st.caption(f"Última actualización: {_stats_vig.get('ultima_actualizacion', '—') or '—'}")
+    st.caption("[Ver en GitHub](https://github.com/ividiellagonzalez-ship-it/aidu-op)")
+
+
+# ============================================================
+# CONTENIDO PRINCIPAL — según sección elegida
+# ============================================================
+
+# Mantener compatibilidad: variables tab_* siguen existiendo pero solo
+# la sección activa se renderiza
+class _Tab:
+    """Stub de st.tabs para compatibilidad. Solo activa el contenido si coincide."""
+    def __init__(self, activo):
+        self.activo = activo
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
+    def __bool__(self):
+        return self.activo
+
+tab_cartera = _Tab(seccion == "📂 Cartera")
+tab_buscar = _Tab(seccion == "🎯 Oportunidades")
+tab_intel = _Tab(seccion == "📊 Inteligencia")
+tab_sistema = _Tab(seccion == "🛠️ Sistema")
+tab_hoy = _Tab(seccion == "🔥 Hoy")
+tab_config = _Tab(seccion == "⚙️ Configuración")
 
 
 # ====================
 # TAB 1: CARTERA
 # ====================
+# ============================================================
+# TAB: 🔥 HOY (v7 — licitaciones publicadas en últimas 24h)
+# ============================================================
+if tab_hoy:
+    st.markdown("## 🔥 Lo nuevo de hoy")
+    st.caption("Licitaciones publicadas recientemente en Mercado Público que calzan con tu perfil AIDU")
+    
+    try:
+        from app.core.descarga_diaria import listar_vigentes, ejecutar_descarga, stats_vigentes
+        
+        col_a, col_b, col_c, col_d = st.columns(4)
+        st_vig = stats_vigentes()
+        col_a.metric("📡 Total vigentes", st_vig["total_vigentes"])
+        col_b.metric("🟢 Últimas 24h", st_vig["publicadas_24h"])
+        col_c.metric("🔴 Cierran ≤3 días", st_vig["cierran_proximos_3_dias"])
+        col_d.metric("🎯 Match AIDU", st_vig["con_match_aidu"])
+        
+        st.divider()
+        
+        col_filt1, col_filt2, col_filt3, col_filt4 = st.columns([2, 2, 2, 1])
+        f_region = col_filt1.selectbox("Región", ["Todas", "O'Higgins", "Metropolitana", "Maule", "Valparaíso"], key="hoy_reg")
+        f_categoria = col_filt2.selectbox("Categoría AIDU", ["Todas", "CE-01", "CE-02", "CE-06", "GP-04"], key="hoy_cat")
+        f_dias = col_filt3.number_input("Cierre máx (días)", min_value=0, max_value=60, value=15, key="hoy_dias")
+        
+        with col_filt4:
+            st.caption("&nbsp;")
+            if st.button("🔄 Sincronizar", use_container_width=True, help="Descarga licitaciones publicadas hoy"):
+                with st.spinner("Descargando desde Mercado Público..."):
+                    try:
+                        resultado = ejecutar_descarga(dias_atras=2)
+                        st.success(f"✅ {resultado['nuevas']} nuevas, {resultado['actualizadas']} actualizadas, {resultado['categorizadas_aidu']} categorizadas AIDU")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error en descarga: {e}")
+        
+        vigentes = listar_vigentes(
+            region=f_region if f_region != "Todas" else None,
+            categoria_aidu=f_categoria if f_categoria != "Todas" else None,
+            dias_max_cierre=f_dias if f_dias > 0 else None,
+            limit=50
+        )
+        
+        if not vigentes:
+            st.info("📭 Sin licitaciones vigentes con estos filtros.")
+            st.markdown("""
+            **Posibles causas:**
+            - No se ha ejecutado la descarga diaria todavía
+            - Los filtros son muy restrictivos
+            - El ticket de Mercado Público no está configurado
+            
+            👉 Click "🔄 Sincronizar" para forzar una descarga manual
+            """)
+        else:
+            st.caption(f"Mostrando {len(vigentes)} licitaciones vigentes")
+            
+            for v in vigentes:
+                dias_cierre = v.get("dias_para_cierre")
+                if dias_cierre is not None and dias_cierre <= 3:
+                    border_color = "#DC2626"
+                elif dias_cierre is not None and dias_cierre <= 7:
+                    border_color = "#D97706"
+                else:
+                    border_color = "#10B981"
+                
+                cat_aidu = v.get("cod_servicio_aidu") or "Sin categoría"
+                
+                st.markdown(f"""
+                <div style='border-left: 4px solid {border_color}; padding: 12px 16px; background: white; border-radius: 6px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                    <div style='display: flex; justify-content: space-between; align-items: start;'>
+                        <div style='flex: 1;'>
+                            <div style='font-weight: 600; font-size: 14px; color: #1E293B; margin-bottom: 4px;'>{v['nombre']}</div>
+                            <div style='font-size: 12px; color: #64748B;'>
+                                🏛️ {v['organismo'] or '—'} · 📍 {v['region'] or '—'} · 🎯 {cat_aidu}
+                            </div>
+                            <div style='font-size: 11px; color: #94A3B8; font-family: monospace; margin-top: 2px;'>
+                                {v['codigo_externo']}
+                            </div>
+                        </div>
+                        <div style='text-align: right; min-width: 140px;'>
+                            <div style='font-weight: 700; color: #1E40AF; font-size: 16px;'>{formato_clp(v['monto_referencial'])}</div>
+                            <div style='font-size: 11px; color: {border_color}; font-weight: 600; margin-top: 2px;'>
+                                {f"⏰ {dias_cierre}d para cerrar" if dias_cierre is not None else "Sin fecha"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    except Exception as e:
+        from app.ui import streamlit_app  # noqa
+        st.warning("⚠️ La función 'Hoy' requiere ejecutar la migración 002. Ve a Sistema → Aplicar migraciones.")
+        with st.expander("Detalle técnico"):
+            st.code(str(e))
+
+
+# ============================================================
+# TAB: ⚙️ CONFIGURACIÓN (v7 — eliminar hardcoded)
+# ============================================================
+if tab_config:
+    st.markdown("## ⚙️ Configuración de AIDU Op")
+    st.caption("Personaliza tarifas, sweet spot, regiones y todo lo que antes estaba hardcoded")
+    
+    try:
+        from app.core.configuracion import obtener_config, actualizar_config, resetear_config
+        
+        cfg = obtener_config()
+        
+        cfg_tab1, cfg_tab2, cfg_tab3, cfg_tab4 = st.tabs([
+            "💰 Economía", "🎯 Sweet Spot", "📍 Filtros", "📧 Notificaciones"
+        ])
+        
+        with cfg_tab1:
+            st.markdown("##### Tarifas y márgenes")
+            col1, col2 = st.columns(2)
+            tarifa = col1.number_input(
+                "Tarifa hora (CLP)",
+                min_value=0, max_value=500_000,
+                value=int(cfg.tarifa_hora_clp), step=5000,
+                help="Tu tarifa por hora. Default: 2 UF ≈ CLP 78.000"
+            )
+            overhead = col2.number_input(
+                "Overhead (%)",
+                min_value=0.0, max_value=50.0,
+                value=float(cfg.overhead_pct), step=1.0,
+                help="Costos indirectos sobre tarifa hora"
+            )
+            
+            col3, col4 = st.columns(2)
+            margen_obj = col3.number_input(
+                "Margen objetivo (%)",
+                min_value=0.0, max_value=100.0,
+                value=float(cfg.margen_objetivo_pct), step=1.0
+            )
+            margen_min = col4.number_input(
+                "Margen mínimo (%)",
+                min_value=0.0, max_value=100.0,
+                value=float(cfg.margen_minimo_pct), step=1.0,
+                help="Por debajo de este margen, NO postular"
+            )
+            
+            st.info(f"💡 Costo hora total con overhead: **{formato_clp(int(tarifa * (1 + overhead/100)))}**")
+            
+            if st.button("💾 Guardar economía", type="primary", key="save_econ"):
+                actualizar_config({
+                    "tarifa_hora_clp": int(tarifa),
+                    "overhead_pct": overhead,
+                    "margen_objetivo_pct": margen_obj,
+                    "margen_minimo_pct": margen_min,
+                })
+                st.success("✅ Configuración guardada")
+                st.rerun()
+        
+        with cfg_tab2:
+            st.markdown("##### Rango de monto referencial óptimo")
+            st.caption("Define qué montos están dentro de tu zona ideal de operación")
+            
+            col1, col2 = st.columns(2)
+            ss_min = col1.number_input(
+                "Sweet spot mín (CLP)",
+                min_value=0, value=int(cfg.sweet_spot_min_clp), step=500_000
+            )
+            ss_max = col2.number_input(
+                "Sweet spot máx (CLP)",
+                min_value=0, value=int(cfg.sweet_spot_max_clp), step=500_000
+            )
+            
+            col3, col4 = st.columns(2)
+            ra_min = col3.number_input(
+                "Aceptable mín (CLP)",
+                min_value=0, value=int(cfg.rango_aceptable_min_clp), step=500_000
+            )
+            ra_max = col4.number_input(
+                "Aceptable máx (CLP)",
+                min_value=0, value=int(cfg.rango_aceptable_max_clp), step=500_000
+            )
+            
+            st.info(f"📊 Sweet spot: **{formato_clp(ss_min)} - {formato_clp(ss_max)}**")
+            
+            if st.button("💾 Guardar sweet spot", type="primary", key="save_sweet"):
+                actualizar_config({
+                    "sweet_spot_min_clp": int(ss_min),
+                    "sweet_spot_max_clp": int(ss_max),
+                    "rango_aceptable_min_clp": int(ra_min),
+                    "rango_aceptable_max_clp": int(ra_max),
+                })
+                st.success("✅ Sweet spot guardado")
+                st.rerun()
+        
+        with cfg_tab3:
+            st.markdown("##### Regiones y categorías objetivo")
+            
+            todas_regiones = ["Arica y Parinacota", "Tarapacá", "Antofagasta", "Atacama", "Coquimbo",
+                              "Valparaíso", "Metropolitana", "O'Higgins", "Maule", "Ñuble", "Biobío",
+                              "Araucanía", "Los Ríos", "Los Lagos", "Aysén", "Magallanes"]
+            
+            regiones = st.multiselect(
+                "Regiones donde operas",
+                options=todas_regiones,
+                default=cfg.regiones_objetivo,
+            )
+            
+            todas_categorias = ["CE-01", "CE-02", "CE-03", "CE-04", "CE-05", "CE-06",
+                                "GP-01", "GP-02", "GP-03", "GP-04", "GP-05", "CAP-01"]
+            
+            categorias = st.multiselect(
+                "Categorías AIDU activas",
+                options=todas_categorias,
+                default=cfg.categorias_objetivo,
+            )
+            
+            st.markdown("##### Mandantes recurrentes")
+            mandantes_text = st.text_area(
+                "Uno por línea",
+                value="\n".join(cfg.mandantes_recurrentes),
+                height=120
+            )
+            mandantes_list = [m.strip() for m in mandantes_text.split("\n") if m.strip()]
+            
+            if st.button("💾 Guardar filtros", type="primary", key="save_filt"):
+                actualizar_config({
+                    "regiones_objetivo": regiones,
+                    "categorias_objetivo": categorias,
+                    "mandantes_recurrentes": mandantes_list,
+                })
+                st.success("✅ Filtros guardados")
+                st.rerun()
+        
+        with cfg_tab4:
+            st.markdown("##### Email y notificaciones")
+            
+            email_notif = st.text_input(
+                "Email para notificaciones",
+                value=cfg.email_notificaciones,
+                placeholder="ignacio@aidu.cl"
+            )
+            
+            col1, col2 = st.columns(2)
+            notif_diario = col1.checkbox(
+                "📧 Email diario 7am",
+                value=cfg.notif_diario_habilitado,
+                help="Resumen de licitaciones que cierran en próximos 5 días"
+            )
+            notif_semanal = col2.checkbox(
+                "📊 Reporte semanal lunes",
+                value=cfg.notif_semanal_habilitado,
+                help="Top 5 oportunidades de la semana con análisis IA"
+            )
+            
+            if st.button("💾 Guardar notificaciones", type="primary", key="save_notif"):
+                actualizar_config({
+                    "email_notificaciones": email_notif,
+                    "notif_diario_habilitado": notif_diario,
+                    "notif_semanal_habilitado": notif_semanal,
+                })
+                st.success("✅ Notificaciones guardadas")
+                st.rerun()
+        
+        st.divider()
+        with st.expander("⚠️ Zona peligrosa"):
+            if st.button("🔄 Resetear toda la configuración a defaults", type="secondary"):
+                resetear_config()
+                st.warning("Configuración reseteada a defaults")
+                st.rerun()
+    
+    except Exception as e:
+        st.warning("⚠️ El módulo de configuración requiere migración 002.")
+        with st.expander("Detalle técnico"):
+            st.code(str(e))
+
+
 with tab_cartera:
     st.markdown("""
     <div class="macro-flow">
