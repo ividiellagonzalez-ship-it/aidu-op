@@ -234,6 +234,7 @@ def listar_oportunidades(
     score_min: int = 0,
     solo_no_en_cartera: bool = True,
     orden: str = "score_desc",
+    busqueda_libre: Optional[str] = None,
     limit: int = 100,
 ) -> List[Dict]:
     """
@@ -247,6 +248,7 @@ def listar_oportunidades(
         score_min: descarta licitaciones con score < este
         solo_no_en_cartera: True = excluye las que ya están como proyecto AIDU
         orden: "score_desc" | "monto_desc" | "fecha_desc"
+        busqueda_libre: palabra clave en nombre o descripción (LIKE)
         limit: máximo a retornar
     
     Returns:
@@ -284,6 +286,12 @@ def listar_oportunidades(
         if monto_max is not None:
             sql += " AND l.monto_referencial <= ?"
             params.append(monto_max)
+        
+        if busqueda_libre and busqueda_libre.strip():
+            # Búsqueda en nombre, descripción y organismo
+            termino = f"%{busqueda_libre.strip()}%"
+            sql += " AND (l.nombre LIKE ? OR l.descripcion LIKE ? OR l.organismo LIKE ?)"
+            params.extend([termino, termino, termino])
         
         if solo_no_en_cartera:
             sql += " AND l.codigo_externo NOT IN (SELECT codigo_externo FROM aidu_proyectos WHERE codigo_externo IS NOT NULL)"
