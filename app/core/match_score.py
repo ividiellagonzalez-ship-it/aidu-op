@@ -415,6 +415,18 @@ def convertir_a_proyecto(codigo_externo: str) -> int:
             lic["cod_servicio_aidu"]
         ))
         conn.commit()
-        return cursor.lastrowid
+        proyecto_id = cursor.lastrowid
+        
+        # Registrar evento creación en bitácora
+        try:
+            conn.execute("""
+                INSERT INTO aidu_comunicaciones (proyecto_id, tipo, texto, fecha)
+                VALUES (?, 'sistema', ?, datetime('now'))
+            """, (proyecto_id, f"Proyecto creado desde oportunidad MP ({codigo_externo})"))
+            conn.commit()
+        except Exception:
+            pass
+        
+        return proyecto_id
     finally:
         conn.close()
