@@ -128,6 +128,43 @@ def _score_mandante(organismo: Optional[str]) -> Tuple[float, str]:
         conn.close()
 
 
+def _score_recencia(fecha_publicacion: Optional[str]) -> Tuple[float, str]:
+    """0-100 según qué tan reciente es la licitación.
+    Las recientes (< 30 días) son más probables de estar vigentes para postular.
+    """
+    if not fecha_publicacion:
+        return 50.0, "Sin fecha"
+    
+    try:
+        from datetime import datetime
+        # Soportar varios formatos
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                fecha = datetime.strptime(fecha_publicacion[:19], fmt[:len(fecha_publicacion[:19])])
+                break
+            except ValueError:
+                continue
+        else:
+            # Solo año-mes-día
+            fecha = datetime.fromisoformat(fecha_publicacion[:10])
+        
+        dias = (datetime.now() - fecha).days
+        
+        if dias < 0:
+            return 100.0, "Muy reciente"
+        if dias <= 30:
+            return 100.0, f"Hace {dias}d"
+        if dias <= 90:
+            return 80.0, f"Hace {dias}d"
+        if dias <= 180:
+            return 60.0, f"Hace {dias}d"
+        if dias <= 365:
+            return 40.0, f"Hace {dias // 30}m"
+        return 20.0, f"Hace {dias // 365}a"
+    except Exception:
+        return 50.0, "Fecha err."
+
+
 def calcular_match_score(licitacion: Dict, config: Optional[Dict] = None) -> Dict:
     """
     Calcula score 0-100 + desglose para una licitación.
@@ -163,9 +200,17 @@ def calcular_match_score(licitacion: Dict, config: Optional[Dict] = None) -> Dic
         cfg["monto_min_aceptable"], cfg["monto_max_aceptable"]
     )
     s_man, l_man = _score_mandante(licitacion.get("organismo"))
+    s_rec, l_rec = _score_recencia(licitacion.get("fecha_publicacion"))
     
-    # Pesos: 40 / 25 / 25 / 10
-    score_total = (s_cat * 0.40 + s_reg * 0.25 + s_mon * 0.25 + s_man * 0.10)
+    # Pesos: 35 / 20 / 20 / 10 / 15 (recencia)
+    # La recencia es CLAVE: una licitación de 2024 ya cerró, no sirve postular
+    score_total = (
+        s_cat * 0.35 +
+        s_reg * 0.20 +
+        s_mon * 0.20 +
+        s_man * 0.10 +
+        s_rec * 0.15
+    )
     score_total = max(0, min(100, round(score_total)))
     
     return {
@@ -175,8 +220,9 @@ def calcular_match_score(licitacion: Dict, config: Optional[Dict] = None) -> Dic
             "region": (round(s_reg), l_reg),
             "monto": (round(s_mon), l_mon),
             "mandante": (round(s_man), l_man),
+            "recencia": (round(s_rec), l_rec),
         },
-        "explicacion": f"{l_cat} · {l_reg} · {l_mon}"
+        "explicacion": f"{l_cat} · {l_reg} · {l_mon} · {l_rec}"
     }
 
 
