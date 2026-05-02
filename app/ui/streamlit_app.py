@@ -405,34 +405,116 @@ def render_detalle_proyecto(proyecto_id: int):
     # TAB: COMPARABLES
     # ======================================
     with tab_comparables:
-        st.markdown(f"##### 📚 Top licitaciones similares en categoría {p['cod_servicio_aidu']}")
-
-        comparables = licitaciones_similares(p["cod_servicio_aidu"], limit=15)
-
-        if not comparables:
-            st.info("Sin comparables en el histórico actual. Ejecuta el backfill 24m para enriquecer datos.")
+        from app.core.comparables import buscar_comparables_proyecto
+        from app.core.utils import formato_clp_corto, formato_porcentaje
+        
+        st.markdown(f"##### 📚 Inteligencia de mercado · categoría {p['cod_servicio_aidu']}")
+        st.caption("Análisis basado en licitaciones adjudicadas históricas en la misma categoría AIDU")
+        
+        with st.spinner("Buscando comparables..."):
+            data_comp = buscar_comparables_proyecto(p["id"], limit=20)
+        
+        if data_comp["total_encontrados"] == 0:
+            st.info(f"Sin comparables adjudicados para **{p['cod_servicio_aidu']}**. Ejecuta el backfill 24m desde Configuración para enriquecer datos.")
         else:
-            st.caption(f"Mostrando {len(comparables)} licitaciones más similares ordenadas por confianza de match")
-
-            for c in comparables:
-                with st.container(border=True):
-                    col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
-
-                    col1.markdown(f"""
-                    **{c['nombre']}**
-                    <br><span style='color:#64748B; font-size:12px;'>
-                    🏛️ {c['organismo'] or '-'} · 📍 {c['region'] or '-'}
-                    </span>
-                    <br><span style='color:#94A3B8; font-family:monospace; font-size:11px;'>{c['codigo']}</span>
-                    """, unsafe_allow_html=True)
-
-                    col2.metric("Referencial", formato_clp(c["monto_referencial"]))
-                    col3.metric(
-                        "Adjudicado",
-                        formato_clp(c["monto_adjudicado"]),
-                        f"{c['descuento_pct']:.1f}%" if c["descuento_pct"] else None
-                    )
-                    col4.metric("Match", f"{c['similarity']:.0f}%")
+            # Stats panel
+            stats = data_comp["stats"]
+            
+            st.markdown("##### 📊 Estadísticas del mercado")
+            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+            col_s1.metric(
+                "Comparables",
+                data_comp["total_encontrados"],
+                help=f"Adjudicaciones históricas en {p['cod_servicio_aidu']}"
+            )
+            if stats.get("descuento_promedio") is not None:
+                col_s2.metric(
+                    "Descuento medio",
+                    f"{stats['descuento_promedio']}%",
+                    delta=f"min {stats.get('descuento_min', 0)}% / max {stats.get('descuento_max', 0)}%",
+                    delta_color="off",
+                    help="% típico de descuento sobre el referencial al adjudicar"
+                )
+            if stats.get("monto_adj_mediano"):
+                col_s3.metric(
+                    "Monto típico",
+                    formato_clp_corto(stats["monto_adj_mediano"]),
+                    help="Monto mediano adjudicado en esta categoría"
+                )
+            if stats.get("n_oferentes_promedio"):
+                col_s4.metric(
+                    "Oferentes promedio",
+                    f"{stats['n_oferentes_promedio']:.1f}",
+                    help="Promedio de oferentes que postulan"
+                )
+            
+            # Insight automático
+            if stats.get("descuento_promedio") is not None:
+                desc_prom = stats["descuento_promedio"]
+                if desc_prom < 5:
+                    st.success(f"💚 **Mercado sano**: descuentos promedio bajos ({desc_prom}%) indican poca presión competitiva")
+                elif desc_prom < 12:
+                    st.info(f"📊 **Mercado equilibrado**: descuentos promedio razonables ({desc_prom}%)")
+                elif desc_prom < 20:
+                    st.warning(f"⚠️ **Mercado competitivo**: descuentos altos ({desc_prom}%), evaluar diferenciación")
+                else:
+                    st.error(f"🔴 **Mercado muy competitivo**: descuentos {desc_prom}%, márgenes apretados")
+            
+            st.divider()
+            
+            # Layout en 2 columnas: mandantes y competencia
+            col_m, col_c = st.columns(2)
+            
+            with col_m:
+                st.markdown("##### 🏛️ Mandantes recurrentes")
+                if data_comp["mandantes_recurrentes"]:
+                    for i, m in enumerate(data_comp["mandantes_recurrentes"][:5], 1):
+                        st.markdown(
+                            f"<div style='padding:6px 10px; background:#F1F5F9; border-radius:6px; margin-bottom:4px; font-size:13px;'>"
+                            f"<strong>#{i}</strong> {m['nombre']} <span style='color:#64748B; float:right;'>{m['cantidad']} adj.</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                else:
+                    st.caption("Sin datos suficientes")
+            
+            with col_c:
+                st.markdown("##### 🥊 Competencia")
+                if data_comp["competencia"]:
+                    for i, c in enumerate(data_comp["competencia"][:5], 1):
+                        st.markdown(
+                            f"<div style='padding:6px 10px; background:#FEF3C7; border-radius:6px; margin-bottom:4px; font-size:13px;'>"
+                            f"<strong>#{i}</strong> {c['nombre']} <span style='color:#92400E; float:right;'>{c['adjudicaciones']} adj.</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                else:
+                    st.caption("Sin datos de proveedores ganadores")
+            
+            st.divider()
+            
+            # Listado detallado
+            with st.expander(f"📋 Ver listado detallado ({data_comp['total_encontrados']} licitaciones)", expanded=False):
+                for c in data_comp["comparables"]:
+                    with st.container(border=True):
+                        col1, col2, col3 = st.columns([4, 2, 2])
+                        col1.markdown(f"""
+                        **{c['nombre']}**  
+                        <span style='color:#64748B; font-size:12px;'>
+                        🏛️ {c['organismo'] or '—'} · 📍 {c['region'] or '—'}
+                        </span><br>
+                        <span style='color:#94A3B8; font-family:monospace; font-size:11px;'>{c['codigo_externo']}</span>
+                        """, unsafe_allow_html=True)
+                        col2.metric("Referencial", formato_clp_corto(c["monto_referencial"]))
+                        if c.get("descuento_pct") is not None:
+                            col3.metric(
+                                "Adjudicado",
+                                formato_clp_corto(c["monto_adjudicado"]),
+                                f"{c['descuento_pct']:.1f}%",
+                                delta_color="inverse"
+                            )
+                        else:
+                            col3.metric("Adjudicado", formato_clp_corto(c["monto_adjudicado"]))
 
     # ======================================
     # TAB: EQUIPO & HH
@@ -933,6 +1015,38 @@ with tab_cartera:
                 if dias is not None and dias <= 3 and p["estado"] not in ("OFERTADA", "ADJUDICADA", "RECHAZADA"):
                     st.warning(f"⚠️ ¡Cierra en {dias} día{'s' if dias != 1 else ''}! Acelera la preparación.")
                 
+                # 🆕 Indicadores de readiness (checklist + paquete)
+                if p["estado"] in ("EN_PREPARACION", "LISTO_OFERTAR"):
+                    try:
+                        from app.core.precalificacion import progreso_checklist
+                        prog_chk = progreso_checklist(p["id"])
+                        
+                        col_r1, col_r2, col_r3 = st.columns(3)
+                        
+                        # Checklist
+                        if prog_chk["porcentaje"] < 50:
+                            col_r1.markdown(f"<div style='padding:6px; background:#FEE2E2; border-radius:6px; font-size:12px; text-align:center;'>🔴 Checklist <strong>{prog_chk['porcentaje']}%</strong></div>", unsafe_allow_html=True)
+                        elif prog_chk["porcentaje"] < 80:
+                            col_r1.markdown(f"<div style='padding:6px; background:#FEF3C7; border-radius:6px; font-size:12px; text-align:center;'>🟡 Checklist <strong>{prog_chk['porcentaje']}%</strong></div>", unsafe_allow_html=True)
+                        else:
+                            col_r1.markdown(f"<div style='padding:6px; background:#DCFCE7; border-radius:6px; font-size:12px; text-align:center;'>🟢 Checklist <strong>{prog_chk['porcentaje']}%</strong></div>", unsafe_allow_html=True)
+                        
+                        # Paquete
+                        paquete_ok = p["paquete_generado"] if "paquete_generado" in p.keys() else 0
+                        if paquete_ok:
+                            col_r2.markdown("<div style='padding:6px; background:#DCFCE7; border-radius:6px; font-size:12px; text-align:center;'>🟢 Paquete <strong>generado</strong></div>", unsafe_allow_html=True)
+                        else:
+                            col_r2.markdown("<div style='padding:6px; background:#FEE2E2; border-radius:6px; font-size:12px; text-align:center;'>🔴 Paquete <strong>pendiente</strong></div>", unsafe_allow_html=True)
+                        
+                        # Precio
+                        precio_ok = p["precio_ofertado"] if "precio_ofertado" in p.keys() else None
+                        if precio_ok:
+                            col_r3.markdown(f"<div style='padding:6px; background:#DCFCE7; border-radius:6px; font-size:12px; text-align:center;'>🟢 Precio <strong>{formato_clp(precio_ok)}</strong></div>", unsafe_allow_html=True)
+                        else:
+                            col_r3.markdown("<div style='padding:6px; background:#FEF3C7; border-radius:6px; font-size:12px; text-align:center;'>🟡 Precio <strong>sin definir</strong></div>", unsafe_allow_html=True)
+                    except Exception:
+                        pass
+                
                 # Acciones: botón principal de próxima etapa + Ver detalle
                 col_a, col_b, col_c = st.columns(3)
                 
@@ -971,6 +1085,14 @@ with tab_buscar:
 
     with col_filtros:
         st.markdown("##### 🔧 Filtros")
+
+        # 🆕 Búsqueda libre por palabra clave
+        busqueda = st.text_input(
+            "🔍 Buscar",
+            placeholder="ej: estructural, escuela, Machalí...",
+            key="op_busqueda",
+            help="Busca en nombre, descripción y organismo"
+        )
 
         # Categoría AIDU
         cats = categorias_disponibles()
@@ -1029,6 +1151,7 @@ with tab_buscar:
             score_min=score_min,
             solo_no_en_cartera=solo_nuevas,
             orden=orden_map[orden_label],
+            busqueda_libre=busqueda,
             limit=100
         )
 
