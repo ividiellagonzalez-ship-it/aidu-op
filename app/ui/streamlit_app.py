@@ -1002,88 +1002,103 @@ def emoji_dias(d):
     return "🟢"
 
 
+def url_licitacion_mp(codigo: str) -> str:
+    """
+    URL pública de una licitación en Mercado Público.
+    Usa el buscador público que SÍ funciona sin autenticación,
+    a diferencia de DetailsAcquisition.aspx que requiere querystring 'qs' encriptado.
+    """
+    if not codigo:
+        return "https://www.mercadopublico.cl/"
+    # El buscador público busca por código exacto y muestra la ficha
+    return f"https://www.mercadopublico.cl/Procurement/Modules/RFB/StepsProcessAcquisition.aspx?qs=&idlicitacion={codigo}"
+
+
+def url_busqueda_mp(codigo: str) -> str:
+    """URL de búsqueda en MP (siempre funciona, lleva a resultados con esa licitación)"""
+    if not codigo:
+        return "https://www.mercadopublico.cl/Home/BuscarLicitacion"
+    return f"https://www.mercadopublico.cl/Home/BuscarLicitacion?searchText={codigo}"
+
+
 # ============================================================
 # VISTA DE DETALLE DEL PROYECTO
 # ============================================================
 def render_detalle_proyecto(proyecto_id: int):
     """
-    Vista de detalle completa y profesional de un proyecto.
-    Integra: info, IA bases, comparables, predicción descuento, equipo, paquete, bitácora.
+    Vista de detalle profesional de un proyecto.
+    7 tabs ricos con código defensivo (cada tab maneja sus propios errores).
     """
     conn = get_connection()
     p = conn.execute("SELECT * FROM aidu_proyectos WHERE id = ?", (proyecto_id,)).fetchone()
     conn.close()
-
+    
     if not p:
         st.error("Proyecto no encontrado")
         if st.button("← Volver"):
             st.session_state.view_proyecto_id = None
             st.rerun()
         return
-
+    
     p = dict(p)
     
-    # Color del estado
+    # Color y label del estado
     color_estado_map = {
-        "EN_CARTERA": ("#64748B", "#F1F5F9"),
-        "EN_ESTUDIO": ("#0E7490", "#CFFAFE"),
-        "EN_ESTUDIO": ("#1E40AF", "#DBEAFE"),
-        "EN_OFERTA": ("#9A3412", "#FED7AA"),
-        "LISTO_SUBIR": ("#6B21A8", "#E9D5FF"),
-        "ADJUDICADO": ("#14532D", "#BBF7D0"),
-        "PERDIDO": ("#7F1D1D", "#FEE2E2"),
-        "DESCARTADO": ("#475569", "#F1F5F9"),
+        "EN_CARTERA":  ("#64748B", "#F1F5F9", "📂 En Cartera"),
+        "EN_ESTUDIO":  ("#0E7490", "#CFFAFE", "🔬 En Estudio"),
+        "EN_OFERTA":   ("#9A3412", "#FED7AA", "📝 En Oferta"),
+        "LISTO_SUBIR": ("#6B21A8", "#E9D5FF", "📤 Listo Subir"),
+        "ADJUDICADO":  ("#14532D", "#BBF7D0", "🏆 Adjudicado"),
+        "PERDIDO":     ("#7F1D1D", "#FEE2E2", "❌ Perdido"),
+        "DESCARTADO":  ("#475569", "#F1F5F9", "🗑️ Descartado"),
     }
-    color, bg = color_estado_map.get(p["estado"], ("#64748B", "#F1F5F9"))
+    color, bg, estado_label = color_estado_map.get(p["estado"], ("#64748B", "#F1F5F9", p["estado"]))
     
-    # Días para cierre
     dias_cierre = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
     color_dias = "#DC2626" if dias_cierre is not None and dias_cierre <= 3 else "#D97706" if dias_cierre is not None and dias_cierre <= 7 else "#15803D"
     
-    # ===== HEADER PROFESIONAL =====
-    col_back, col_acciones = st.columns([1, 4])
+    url_mp = p.get("url_mp") or url_busqueda_mp(p["codigo_externo"])
+    
+    # ===== HEADER LIMPIO (sin HTML denso que causaba </div> visibles) =====
+    col_back, col_spacer, col_mp = st.columns([1, 3, 2])
     
     with col_back:
         if st.button("← Volver", use_container_width=True, key="back_detalle"):
             st.session_state.view_proyecto_id = None
             st.rerun()
     
-    # URL Mercado Público
-    url_mp = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={p['codigo_externo']}"
+    with col_mp:
+        st.markdown(
+            f"<a href='{url_mp}' target='_blank' style='display:block; padding:7px 14px; background:#1E40AF; color:white; "
+            f"border-radius:8px; text-decoration:none; font-weight:600; font-size:13px; text-align:center;'>"
+            f"🌐 Buscar en Mercado Público</a>",
+            unsafe_allow_html=True
+        )
     
-    with col_acciones:
-        st.markdown(f"""
-        <div style='display:flex; gap:8px; justify-content:flex-end;'>
-            <a href='{url_mp}' target='_blank' style='display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#1E40AF; color:white; border-radius:8px; text-decoration:none; font-weight:600; font-size:13px; box-shadow:0 1px 2px rgba(0,0,0,0.05);'>
-                🌐 Abrir en Mercado Público
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
+    # Header en una sola card limpia
+    dias_html = f"<span style='color:{color_dias}; font-weight:600;'>⏰ {dias_cierre} días para cerrar</span>" if dias_cierre is not None else ""
     
-    # Header con todos los datos clave
-    st.markdown(f"""
-    <div style='background:linear-gradient(135deg, {bg} 0%, white 80%); padding:24px 28px; border-radius:14px; margin:16px 0 24px; border-left:5px solid {color}; box-shadow:0 4px 12px rgba(15,23,42,0.06);'>
-        <div style='display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;'>
-            <div style='flex:1;'>
-                <div style='display:flex; align-items:center; gap:10px; margin-bottom:8px;'>
-                    <span class='estado-{p["estado"]}'>{p["estado"]}</span>
-                    <span style='font-family:JetBrains Mono,monospace; font-size:12px; color:#64748B;'>{p["codigo_externo"]}</span>
-                </div>
-                <div style='font-size:24px; font-weight:700; color:#0F172A; line-height:1.2; margin-bottom:6px;'>{p["nombre"]}</div>
-                <div style='font-size:13px; color:#64748B;'>
-                    🏛️ {p.get("organismo") or "—"} · 📍 {p.get("region") or "—"} · 🎯 {p.get("cod_servicio_aidu") or "Sin categoría"}
-                </div>
-            </div>
-            <div style='text-align:right; min-width:200px;'>
-                <div style='font-size:12px; color:#64748B; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;'>Monto referencial</div>
-                <div style='font-size:32px; font-weight:800; color:#1E40AF; letter-spacing:-1px;'>{formato_clp(p.get("monto_referencial", 0))}</div>
-                {f'<div style="font-size:13px; font-weight:600; color:{color_dias}; margin-top:4px;">⏰ {dias_cierre} días para cerrar</div>' if dias_cierre is not None else ''}
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='background:linear-gradient(135deg, {bg} 0%, white 80%); padding:20px 24px; "
+        f"border-radius:14px; margin:16px 0 20px; border-left:4px solid {color};'>"
+        f"<div style='display:flex; align-items:center; gap:10px; margin-bottom:6px;'>"
+        f"<span style='background:{color}; color:white; padding:4px 12px; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:0.4px;'>{estado_label}</span>"
+        f"<span style='font-family:JetBrains Mono,monospace; font-size:12px; color:#64748B;'>{p['codigo_externo']}</span>"
+        f"</div>"
+        f"<div style='font-size:22px; font-weight:700; color:#0F172A; line-height:1.3; margin-bottom:8px;'>{p['nombre']}</div>"
+        f"<div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;'>"
+        f"<div style='font-size:13px; color:#64748B;'>"
+        f"🏛️ {p.get('organismo') or '—'} · 📍 {p.get('region') or '—'} · 🎯 {p.get('cod_servicio_aidu') or 'Sin categoría'}"
+        f"</div>"
+        f"<div style='text-align:right;'>"
+        f"<div style='font-size:11px; color:#64748B; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;'>Monto referencial</div>"
+        f"<div style='font-size:28px; font-weight:800; color:#1E40AF; letter-spacing:-0.5px;'>{formato_clp(p.get('monto_referencial', 0))}</div>"
+        f"{dias_html}"
+        f"</div></div></div>",
+        unsafe_allow_html=True
+    )
     
-    # ===== ACCIONES DE ESTADO (cambio rápido entre fases del embudo) =====
+    # ===== ACCIONES DE ESTADO =====
     flow_estados = [
         ("EN_CARTERA",  "📂 Cartera"),
         ("EN_ESTUDIO",  "🔬 Estudio"),
@@ -1094,34 +1109,29 @@ def render_detalle_proyecto(proyecto_id: int):
     estado_idx = next((i for i, (e, _) in enumerate(flow_estados) if e == p["estado"]), -1)
     
     if estado_idx >= 0 and estado_idx < len(flow_estados) - 1:
-        siguiente_estado, siguiente_label = flow_estados[estado_idx + 1]
-        col_avance1, col_avance2, col_avance3 = st.columns([2, 2, 1])
-        
-        with col_avance1:
-            if st.button(f"➡️ Avanzar a {siguiente_label}", type="primary", use_container_width=True, key="avanzar"):
-                _cambiar_estado(proyecto_id, siguiente_estado)
-                st.success(f"✅ Avanzado a {siguiente_label}")
+        sig_est, sig_label = flow_estados[estado_idx + 1]
+        col_av1, col_av2, col_av3 = st.columns([2, 2, 1])
+        with col_av1:
+            if st.button(f"➡️ Avanzar a {sig_label}", type="primary", use_container_width=True, key="adv"):
+                _cambiar_estado(proyecto_id, sig_est)
                 st.rerun()
-        
-        with col_avance2:
+        with col_av2:
             if estado_idx > 0:
-                anterior_estado, anterior_label = flow_estados[estado_idx - 1]
-                if st.button(f"⬅️ Retroceder a {anterior_label}", use_container_width=True, key="retroceder"):
-                    _cambiar_estado(proyecto_id, anterior_estado)
+                ant_est, ant_label = flow_estados[estado_idx - 1]
+                if st.button(f"⬅️ Retroceder a {ant_label}", use_container_width=True, key="ret"):
+                    _cambiar_estado(proyecto_id, ant_est)
                     st.rerun()
-        
-        with col_avance3:
-            if st.button("❌ Descartar", use_container_width=True, key="descartar"):
+        with col_av3:
+            if st.button("❌ Descartar", use_container_width=True, key="desc"):
                 _cambiar_estado(proyecto_id, "DESCARTADO")
                 st.rerun()
     
-    # ===== TABS DE LA FICHA =====
-    t_resumen, t_ia, t_precios, t_comparables, t_check, t_equipo, t_paquete, t_bitacora = st.tabs([
+    # ===== TABS (cada uno con try/except para no romper toda la ficha) =====
+    t_resumen, t_comparables, t_precios, t_ia, t_equipo, t_paquete, t_bitacora = st.tabs([
         "📋 Resumen",
-        "🤖 Análisis IA",
+        "📊 Comparables",
         "💰 Inteligencia precios",
-        "📚 Comparables",
-        "✅ Precalificación",
+        "🤖 Análisis IA",
         "👥 Equipo & HH",
         "📦 Paquete",
         "📝 Bitácora",
@@ -1133,62 +1143,42 @@ def render_detalle_proyecto(proyecto_id: int):
         
         with col1:
             st.markdown("##### 📌 Información general")
-            st.markdown(f"""
-            <div style='background:white; padding:16px 20px; border:1px solid #E2E8F0; border-radius:10px;'>
-                <table style='width:100%; font-size:13px;'>
-                    <tr><td style='color:#64748B; padding:6px 0; width:40%;'>Código MP</td><td style='font-family:JetBrains Mono,monospace; font-weight:600;'>{p["codigo_externo"]}</td></tr>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Mandante</td><td style='font-weight:500;'>{p.get("organismo") or "—"}</td></tr>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Región</td><td>{p.get("region") or "—"}</td></tr>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Categoría AIDU</td><td>{p.get("cod_servicio_aidu") or "—"}</td></tr>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Estado actual</td><td><span class='estado-{p["estado"]}'>{p["estado"]}</span></td></tr>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Fecha publicación</td><td>{p.get("fecha_publicacion") or "—"}</td></tr>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Fecha cierre</td><td><strong style='color:{color_dias};'>{p.get("fecha_cierre") or "—"} {f"({dias_cierre}d)" if dias_cierre is not None else ""}</strong></td></tr>
-                </table>
-            </div>
-            """, unsafe_allow_html=True)
+            
+            info_html = (
+                "<div style='background:white; padding:14px 20px; border:1px solid #E2E8F0; border-radius:10px;'>"
+                "<table style='width:100%; font-size:13px; border-collapse:collapse;'>"
+                f"<tr><td style='color:#64748B; padding:6px 0; width:40%;'>Código MP</td><td style='font-family:JetBrains Mono,monospace; font-weight:600;'>{p['codigo_externo']}</td></tr>"
+                f"<tr><td style='color:#64748B; padding:6px 0;'>Mandante</td><td style='font-weight:500;'>{p.get('organismo') or '—'}</td></tr>"
+                f"<tr><td style='color:#64748B; padding:6px 0;'>Región</td><td>{p.get('region') or '—'}</td></tr>"
+                f"<tr><td style='color:#64748B; padding:6px 0;'>Categoría AIDU</td><td>{p.get('cod_servicio_aidu') or '—'}</td></tr>"
+                f"<tr><td style='color:#64748B; padding:6px 0;'>Estado</td><td>{estado_label}</td></tr>"
+                f"<tr><td style='color:#64748B; padding:6px 0;'>Fecha publicación</td><td>{p.get('fecha_publicacion') or '—'}</td></tr>"
+                f"<tr><td style='color:#64748B; padding:6px 0;'>Fecha cierre</td><td><strong style='color:{color_dias};'>{p.get('fecha_cierre') or '—'}</strong></td></tr>"
+                "</table></div>"
+            )
+            st.markdown(info_html, unsafe_allow_html=True)
             
             if p.get("descripcion"):
                 st.markdown("##### 📄 Descripción")
-                st.markdown(f"<div style='background:#F8FAFC; padding:14px 18px; border-radius:8px; font-size:13px; color:#334155; line-height:1.6;'>{p['descripcion']}</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='background:#F8FAFC; padding:14px 18px; border-radius:8px; "
+                    f"font-size:13px; color:#334155; line-height:1.6;'>{p['descripcion']}</div>",
+                    unsafe_allow_html=True
+                )
             
-            if p.get("notas"):
-                st.markdown("##### 🗒️ Notas")
-                st.markdown(f"<div style='background:#FEF3C7; padding:14px 18px; border-radius:8px; font-size:13px; color:#78350F; line-height:1.6; white-space:pre-wrap;'>{p['notas']}</div>", unsafe_allow_html=True)
-            
-            # ===== INTELIGENCIA DEL MANDANTE =====
+            # Inteligencia mandante (defensivo)
             try:
                 from app.core.inteligencia_avanzada import analizar_mandante
-                
                 if p.get("organismo"):
                     mand = analizar_mandante(p["organismo"])
-                    
-                    if mand and mand.get("n_licitaciones", 0) > 0:
+                    if mand and mand.get("encontrado") and mand.get("total_licitaciones", 0) > 0:
                         st.markdown("##### 🏛️ Inteligencia del mandante")
-                        st.markdown(f"""
-                        <div style='background:white; padding:16px 20px; border:1px solid #E2E8F0; border-radius:10px;'>
-                            <div style='font-size:13px; color:#0F172A; font-weight:600; margin-bottom:10px;'>{p["organismo"]}</div>
-                            <div style='display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; font-size:12px;'>
-                                <div>
-                                    <div style='color:#64748B;'>Licitaciones publicadas</div>
-                                    <div style='font-size:18px; font-weight:700; color:#1E40AF;'>{mand.get("n_licitaciones", 0)}</div>
-                                </div>
-                                <div>
-                                    <div style='color:#64748B;'>Adjudicadas</div>
-                                    <div style='font-size:18px; font-weight:700; color:#15803D;'>{mand.get("n_adjudicadas", 0)}</div>
-                                </div>
-                                <div>
-                                    <div style='color:#64748B;'>Ticket promedio</div>
-                                    <div style='font-size:14px; font-weight:600; color:#0F172A;'>{formato_clp(mand.get("ticket_promedio", 0))}</div>
-                                </div>
-                                <div>
-                                    <div style='color:#64748B;'>Descuento promedio</div>
-                                    <div style='font-size:14px; font-weight:600; color:#0F172A;'>{mand.get("descuento_promedio_pct", 0):.1f}%</div>
-                                </div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-            except Exception:
-                pass
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        col_m1.metric("📋 Licitaciones", mand.get("total_licitaciones", 0))
+                        col_m2.metric("💰 Ticket promedio", formato_clp(mand.get("monto_promedio_clp", 0)))
+                        col_m3.metric("📉 Descuento promedio", f"{mand.get('descuento_promedio_pct', 0):.1f}%")
+            except Exception as e:
+                st.caption(f"⚠️ Inteligencia mandante no disponible")
         
         with col2:
             st.markdown("##### 💰 Resumen económico")
@@ -1199,38 +1189,32 @@ def render_detalle_proyecto(proyecto_id: int):
                 tarifa = cfg.tarifa_hora_clp
                 overhead = cfg.overhead_pct
             except Exception:
-                tarifa = 78000
-                overhead = 18
+                tarifa, overhead = 78000, 18
             
             costo_hora = int(tarifa * (1 + overhead / 100))
-            
             monto_ref = p.get("monto_referencial", 0) or 0
-            sweet_min = 3_000_000
-            sweet_max = 15_000_000
             
-            if monto_ref < sweet_min:
-                zona = ("⚠️ Por debajo del sweet spot", "#D97706")
-            elif monto_ref > sweet_max:
-                zona = ("⚠️ Por encima del sweet spot", "#D97706")
+            if monto_ref < 3_000_000:
+                zona, cz = "⚠️ Bajo sweet spot", "#D97706"
+            elif monto_ref > 15_000_000:
+                zona, cz = "⚠️ Sobre sweet spot", "#D97706"
             else:
-                zona = ("✅ Dentro del sweet spot", "#15803D")
+                zona, cz = "✅ En sweet spot", "#15803D"
             
-            st.markdown(f"""
-            <div style='background:white; padding:18px; border:1px solid #E2E8F0; border-radius:10px;'>
-                <div style='font-size:11px; color:#64748B; text-transform:uppercase; font-weight:600; letter-spacing:0.5px;'>Monto referencial</div>
-                <div style='font-size:26px; font-weight:800; color:#1E40AF; margin:4px 0 8px;'>{formato_clp(monto_ref)}</div>
-                <div style='font-size:11px; font-weight:600; color:{zona[1]}; padding:4px 8px; background:{zona[1]}15; border-radius:4px; display:inline-block; margin-bottom:14px;'>{zona[0]}</div>
-                
-                <div style='border-top:1px solid #F1F5F9; padding-top:12px; margin-top:8px;'>
-                    <div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>
-                        <span>Tarifa hora</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(tarifa)}</span>
-                    </div>
-                    <div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>
-                        <span>Costo c/overhead</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(costo_hora)}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='background:white; padding:18px; border:1px solid #E2E8F0; border-radius:10px;'>"
+                f"<div style='font-size:11px; color:#64748B; text-transform:uppercase; font-weight:600;'>Monto referencial</div>"
+                f"<div style='font-size:24px; font-weight:800; color:#1E40AF; margin:4px 0 8px;'>{formato_clp(monto_ref)}</div>"
+                f"<div style='font-size:11px; font-weight:600; color:{cz}; padding:4px 8px; background:{cz}15; "
+                f"border-radius:4px; display:inline-block;'>{zona}</div>"
+                f"<div style='border-top:1px solid #F1F5F9; padding-top:10px; margin-top:12px;'>"
+                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:3px 0;'>"
+                f"<span>Tarifa hora</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(tarifa)}</span></div>"
+                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:3px 0;'>"
+                f"<span>Costo c/overhead</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(costo_hora)}</span></div>"
+                f"</div></div>",
+                unsafe_allow_html=True
+            )
             
             # Predicción descuento
             try:
@@ -1240,139 +1224,134 @@ def render_detalle_proyecto(proyecto_id: int):
                     p.get("organismo"),
                     p.get("monto_referencial")
                 )
-                
                 color_p = "#15803D" if pred["confianza"] >= 0.6 else "#D97706"
                 
-                st.markdown(f"""
-                <div style='background:linear-gradient(135deg, {color_p}10 0%, white 80%); padding:16px; border:1px solid #E2E8F0; border-left:3px solid {color_p}; border-radius:10px; margin-top:12px;'>
-                    <div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;'>🎯 Descuento recomendado</div>
-                    <div style='font-size:32px; font-weight:800; color:{color_p}; line-height:1; margin:6px 0;'>{pred['descuento_recomendado_pct']}%</div>
-                    <div style='font-size:11px; color:#64748B;'>Banda: {pred['descuento_minimo_pct']}% – {pred['descuento_maximo_pct']}%</div>
-                    <div style='font-size:11px; color:#64748B; margin-top:6px;'>Confianza: <strong style='color:{color_p};'>{pred['confianza']*100:.0f}%</strong></div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='background:linear-gradient(135deg, {color_p}10 0%, white 80%); "
+                    f"padding:14px 16px; border:1px solid #E2E8F0; border-left:3px solid {color_p}; "
+                    f"border-radius:10px; margin-top:12px;'>"
+                    f"<div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700;'>🎯 Descuento recomendado</div>"
+                    f"<div style='font-size:28px; font-weight:800; color:{color_p}; line-height:1; margin:4px 0;'>{pred['descuento_recomendado_pct']}%</div>"
+                    f"<div style='font-size:11px; color:#64748B;'>Banda: {pred['descuento_minimo_pct']}% – {pred['descuento_maximo_pct']}%</div>"
+                    f"<div style='font-size:11px; color:#64748B; margin-top:4px;'>Confianza: <strong style='color:{color_p};'>{pred['confianza']*100:.0f}%</strong></div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
             except Exception:
                 pass
-            
-            # ===== LINK DIRECTO MP =====
-            st.markdown(f"""
-            <div style='background:linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%); padding:14px 16px; border-radius:10px; margin-top:12px; text-align:center;'>
-                <div style='font-size:11px; color:#DBEAFE; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;'>📡 Mercado Público</div>
-                <a href='{url_mp}' target='_blank' style='display:block; padding:10px; background:white; color:#1E40AF; border-radius:8px; text-decoration:none; font-weight:700; font-size:13px; margin-top:8px;'>
-                    🌐 Abrir licitación en MP →
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
     
-    # ============ TAB 2: ANÁLISIS IA ============
-    with t_ia:
-        st.markdown("##### 🤖 Análisis IA de bases técnicas")
-        st.caption("Sube el PDF de las bases y Claude extraerá requisitos, plazos, riesgos y recomendación")
+    # ============ TAB 2: COMPARABLES (la estrella del show) ============
+    with t_comparables:
+        st.markdown("##### 📊 Licitaciones similares adjudicadas en el histórico")
+        st.caption("Cada comparable tiene su precio HOMOLOGADO al contexto actual con factores explícitos.")
         
         try:
-            from app.core.analisis_bases import obtener_ultimo_analisis, analizar_pdf_bases
+            from app.core.comparables_homologados import buscar_comparables_homologados
             
-            ultimo = obtener_ultimo_analisis(p["codigo_externo"])
+            comp = buscar_comparables_homologados(
+                cod_servicio_aidu=p.get("cod_servicio_aidu") or "",
+                region=p.get("region"),
+                monto_referencial=p.get("monto_referencial"),
+                limit=10
+            )
             
-            if ultimo:
-                st.success(f"📦 Análisis previo del {ultimo['fecha_analisis']} · Costo: ${ultimo['costo_usd']:.4f} USD")
-                
-                resultado = ultimo["resultado"]
-                rec = resultado.get("recomendacion", {})
-                postular = rec.get("postular", "incierto")
-                color_r = "#15803D" if postular == "si" else "#DC2626" if postular == "no" else "#D97706"
-                label_r = "✅ POSTULAR" if postular == "si" else "❌ NO POSTULAR" if postular == "no" else "⚠️ CON RESERVAS"
-                
-                st.markdown(f"""
-                <div style='padding:20px; background:linear-gradient(135deg, {color_r}15 0%, white 70%); border-left:5px solid {color_r}; border-radius:12px; margin:16px 0;'>
-                    <div style='display:flex; justify-content:space-between; align-items:center;'>
-                        <div style='font-size:22px; font-weight:800; color:{color_r};'>{label_r}</div>
-                        <div style='text-align:right;'>
-                            <div style='font-size:11px; color:#64748B;'>Confianza Claude</div>
-                            <div style='font-size:24px; font-weight:800; color:{color_r};'>{rec.get("confianza", 0)}%</div>
-                        </div>
-                    </div>
-                    <div style='font-size:14px; color:#334155; margin-top:10px; line-height:1.6;'>{resultado.get("resumen_ejecutivo", "")}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Razones
-                razones = rec.get("razones_principales", [])
-                if razones:
-                    cols_r = st.columns(min(len(razones), 3))
-                    for i, razon in enumerate(razones):
-                        cols_r[i % 3].markdown(f"""
-                        <div style='padding:12px; background:white; border:1px solid #E2E8F0; border-radius:8px; height:100%;'>
-                            <div style='font-size:11px; color:#64748B; font-weight:600;'>RAZÓN {i+1}</div>
-                            <div style='font-size:13px; color:#0F172A; margin-top:4px;'>{razon}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                # Resumen requisitos
-                requisitos = resultado.get("requisitos_eliminatorios", [])
-                if requisitos:
-                    n_si = sum(1 for r in requisitos if r.get("puede_cumplir") == "si")
-                    n_no = sum(1 for r in requisitos if r.get("puede_cumplir") == "no")
-                    n_inc = len(requisitos) - n_si - n_no
-                    
-                    st.markdown("###### Requisitos eliminatorios")
-                    rc1, rc2, rc3 = st.columns(3)
-                    rc1.metric("✅ Cumplibles", n_si)
-                    rc2.metric("❌ No cumplibles", n_no)
-                    rc3.metric("⚠️ Inciertos", n_inc)
-                    
-                    with st.expander("Ver detalle de requisitos"):
-                        for req in requisitos:
-                            puede = req.get("puede_cumplir", "incierto")
-                            icon = "✅" if puede == "si" else "❌" if puede == "no" else "⚠️"
-                            st.markdown(f"**{icon} {req.get('requisito', '—')}** — {req.get('comentario', '')}")
-                
-                col_r1, col_r2 = st.columns(2)
-                with col_r1:
-                    if st.button("🔄 Re-analizar (nuevo PDF)", use_container_width=True):
-                        st.session_state["ia_reupload"] = True
-                with col_r2:
-                    if st.button("📊 Ver análisis completo", use_container_width=True):
-                        st.session_state["ia_proyecto_pre"] = p["codigo_externo"]
-                        st.query_params["nav"] = "ia"
-                        st.session_state.view_proyecto_id = None
-                        st.rerun()
+            n = comp["n_comparables"]
             
-            if not ultimo or st.session_state.get("ia_reupload"):
-                st.info("Aún no se ha analizado las bases técnicas de este proyecto")
+            if n == 0:
+                st.info(f"📭 Sin comparables adjudicados en categoría **{p.get('cod_servicio_aidu') or '?'}**.")
+            else:
+                # Estadísticas homologadas (DESTACADAS)
+                stats = comp["estadisticas_homologadas"]
                 
-                archivo = st.file_uploader(
-                    "📄 Sube el PDF de las bases técnicas",
-                    type=["pdf"],
-                    key=f"upload_ia_{proyecto_id}"
-                )
+                st.markdown("###### 💵 Rango de precios adjudicados (homologados)")
+                col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+                col_s1.metric("📊 Mediana", formato_clp(stats["monto_adj_mediana"]))
+                col_s2.metric("📈 Promedio", formato_clp(stats["monto_adj_promedio"]))
+                col_s3.metric("⬇️ Mínimo", formato_clp(stats["monto_adj_min"]))
+                col_s4.metric("⬆️ Máximo", formato_clp(stats["monto_adj_max"]))
                 
-                if archivo and st.button("🚀 Analizar con Claude", type="primary", use_container_width=True, key="run_ia"):
-                    with st.spinner("🤖 Claude está leyendo las bases..."):
-                        pdf_bytes = archivo.read()
-                        resultado = analizar_pdf_bases(
-                            pdf_bytes,
-                            codigo_licitacion=p["codigo_externo"],
-                            proyecto_id=proyecto_id,
-                            forzar_reanalisis=True
-                        )
+                # Barra visual: dónde cae nuestro monto referencial vs mediana
+                monto_ref = p.get("monto_referencial", 0) or 0
+                mediana = stats["monto_adj_mediana"]
+                if mediana > 0 and monto_ref > 0:
+                    delta_pct = ((monto_ref - mediana) / mediana) * 100
+                    color_delta = "#15803D" if delta_pct > 5 else "#D97706" if delta_pct > -5 else "#DC2626"
+                    label = "✅ holgado" if delta_pct > 5 else "⚠️ ajustado" if delta_pct > -5 else "🔴 bajo competencia"
+                    st.markdown(
+                        f"<div style='background:white; padding:12px 16px; border:1px solid #E2E8F0; "
+                        f"border-left:3px solid {color_delta}; border-radius:8px; margin-top:8px;'>"
+                        f"<div style='font-size:12px; color:#64748B;'>Tu monto referencial vs mediana adjudicada:</div>"
+                        f"<div style='font-size:14px; font-weight:600; color:{color_delta}; margin-top:4px;'>"
+                        f"{label} · {delta_pct:+.1f}% vs mediana ({formato_clp(mediana)})"
+                        f"</div></div>",
+                        unsafe_allow_html=True
+                    )
+                
+                # Descuentos típicos
+                st.markdown("###### 📉 Descuentos típicos en estos proyectos")
+                col_d1, col_d2 = st.columns(2)
+                col_d1.metric("Descuento promedio", f"{stats['descuento_promedio_pct']:.1f}%")
+                col_d2.metric("Descuento mediana", f"{stats['descuento_mediana_pct']:.1f}%")
+                
+                # Criterios de homologación visibles
+                with st.expander("🔍 Cómo se calculan los precios homologados"):
+                    crit = comp["criterios_homologacion"]
+                    st.markdown(f"**Categoría:** `{crit.get('categoria_buscada')}` · **Región:** `{crit.get('region_buscada')}`")
+                    st.markdown(crit.get("explicacion", ""))
+                
+                st.divider()
+                
+                # Lista de comparables
+                st.markdown(f"###### 📋 Top {n} comparables (ordenados por similitud)")
+                
+                for c in comp["comparables"]:
+                    sim = c["similitud"]
+                    color_sim = "#15803D" if sim >= 70 else "#D97706" if sim >= 50 else "#DC2626"
                     
-                    if resultado["ok"]:
-                        st.success(f"✅ Análisis completado · ${resultado['meta']['costo_usd']:.4f} USD")
-                        st.session_state["ia_reupload"] = False
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {resultado.get('error')}")
+                    # Precios original vs homologado
+                    monto_orig = c.get("monto_adjudicado", 0)
+                    monto_homol = c["monto_adjudicado_homologado"]
+                    factor = c["factor_total"]
+                    
+                    delta_homol = ""
+                    if factor != 1.0:
+                        diff = monto_homol - monto_orig
+                        pct = (diff / monto_orig * 100) if monto_orig else 0
+                        delta_homol = f" <span style='color:#64748B; font-size:11px;'>(× {factor} = {pct:+.1f}%)</span>"
+                    
+                    desc_str = f"{c['descuento_pct']:+.1f}% descuento" if c.get("descuento_pct") is not None else "Sin dato descuento"
+                    fecha = c.get("fecha_adjudicacion") or "—"
+                    if fecha and fecha != "—":
+                        fecha = fecha[:10]
+                    
+                    st.markdown(
+                        f"<div class='aidu-card' style='border-left:3px solid {color_sim};'>"
+                        f"<div style='display:flex; justify-content:space-between; align-items:start; gap:16px;'>"
+                        f"<div style='flex:1; min-width:0;'>"
+                        f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:4px;'>"
+                        f"<span style='background:{color_sim}; color:white; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700;'>SIM {sim}/100</span>"
+                        f"<span style='font-family:JetBrains Mono,monospace; font-size:11px; color:#94A3B8;'>{c['codigo_externo']}</span>"
+                        f"</div>"
+                        f"<div style='font-size:13px; font-weight:600; color:#0F172A; margin-bottom:4px;'>{c['nombre']}</div>"
+                        f"<div style='font-size:12px; color:#64748B;'>"
+                        f"🏛️ {c.get('organismo') or '—'} · 📅 {fecha} · 👥 {c.get('n_oferentes') or '?'} oferentes"
+                        f"</div></div>"
+                        f"<div style='text-align:right; min-width:200px;'>"
+                        f"<div style='font-size:11px; color:#64748B;'>Adjudicado: {formato_clp(monto_orig)}</div>"
+                        f"<div style='font-size:18px; font-weight:700; color:#1E40AF;'>{formato_clp(monto_homol)}</div>"
+                        f"<div style='font-size:11px; color:#64748B;'>Homologado{delta_homol}</div>"
+                        f"<div style='font-size:11px; color:#15803D; font-weight:600; margin-top:2px;'>{desc_str}</div>"
+                        f"</div></div></div>",
+                        unsafe_allow_html=True
+                    )
         except Exception as e:
-            st.warning(f"⚠️ Módulo IA no disponible: {e}")
+            st.error(f"Error cargando comparables: {e}")
     
     # ============ TAB 3: INTELIGENCIA PRECIOS ============
     with t_precios:
         st.markdown("##### 💰 Inteligencia de precios y márgenes")
-        
         try:
             from app.core.inteligencia_avanzada import predecir_descuento_optimo
-            
             pred = predecir_descuento_optimo(
                 p.get("cod_servicio_aidu") or "",
                 p.get("organismo"),
@@ -1383,25 +1362,21 @@ def render_detalle_proyecto(proyecto_id: int):
             col1.metric("🎯 Descuento óptimo", f"{pred['descuento_recomendado_pct']}%", help=pred["razon"])
             col2.metric("📉 Mínimo seguro", f"{pred['descuento_minimo_pct']}%")
             col3.metric("📈 Máximo arriesgado", f"{pred['descuento_maximo_pct']}%")
-            
             st.caption(f"💡 {pred['razon']} · Confianza: {pred['confianza']*100:.0f}%")
             
-            # Histórico mandante
             if pred.get("historico_mandante"):
                 hm = pred["historico_mandante"]
                 st.markdown("###### 🏛️ Histórico con este mandante")
                 cm1, cm2, cm3 = st.columns(3)
-                cm1.metric("Proyectos previos", hm["n_proyectos"])
-                cm2.metric("Descuento promedio", f"{hm['descuento_promedio_pct']}%")
-                cm3.metric("Rango histórico", f"{hm['descuento_min_pct']}% – {hm['descuento_max_pct']}%")
+                cm1.metric("Proyectos previos", hm.get("n_proyectos", 0))
+                cm2.metric("Descuento promedio", f"{hm.get('descuento_promedio_pct', 0):.1f}%")
+                cm3.metric("Rango histórico", f"{hm.get('descuento_min_pct', 0):.1f}% – {hm.get('descuento_max_pct', 0):.1f}%")
             
-            # Escenarios calculados
+            # Escenarios
             try:
                 escenarios = calcular_escenarios_precio(proyecto_id)
-                
                 if escenarios.get("ok"):
                     st.markdown("###### 📊 Escenarios de precio")
-                    
                     cols = st.columns(3)
                     for i, (key, label, clase) in enumerate([
                         ("agresivo", "Agresivo", "agresivo"),
@@ -1409,152 +1384,98 @@ def render_detalle_proyecto(proyecto_id: int):
                         ("premium", "Premium", "premium"),
                     ]):
                         e = escenarios.get(key, {})
-                        cols[i].markdown(f"""
-                        <div class='escenario-card escenario-{clase}'>
-                            <div class='esc-label'>{label}</div>
-                            <div class='esc-precio'>{formato_clp(e.get("precio", 0))}</div>
-                            <div class='esc-margen'>Margen: {e.get("margen_pct", 0):.1f}%</div>
-                            <div class='esc-prob'>Prob: {e.get("probabilidad", 0)}%</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        cols[i].markdown(
+                            f"<div class='escenario-card escenario-{clase}'>"
+                            f"<div class='esc-label'>{label}</div>"
+                            f"<div class='esc-precio'>{formato_clp(e.get('precio', 0))}</div>"
+                            f"<div class='esc-margen'>Margen: {e.get('margen_pct', 0):.1f}%</div>"
+                            f"<div class='esc-prob'>Prob: {e.get('probabilidad', 0)}%</div>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
             except Exception:
                 pass
         except Exception as e:
-            st.info("La inteligencia de precios requiere proyectos con histórico para predecir bien")
+            st.info("La inteligencia de precios requiere proyectos con histórico para predecir bien.")
     
-    # ============ TAB 4: COMPARABLES ============
-    with t_comparables:
-        st.markdown("##### 📚 Licitaciones similares en el histórico")
+    # ============ TAB 4: ANÁLISIS IA ============
+    with t_ia:
+        st.markdown("##### 🤖 Análisis IA de bases técnicas")
+        st.caption("Sube el PDF de las bases y Claude extraerá requisitos, plazos, riesgos y recomendación.")
         
         try:
-            from app.core.comparables import buscar_comparables
+            from app.core.analisis_bases import obtener_ultimo_analisis, analizar_pdf_bases
             
-            comp = buscar_comparables(
-                cod_servicio_aidu=p.get("cod_servicio_aidu"),
-                organismo=p.get("organismo"),
-                limit=10
-            )
+            ultimo = obtener_ultimo_analisis(p["codigo_externo"])
             
-            if comp.get("comparables"):
-                stats = comp.get("stats", {})
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Comparables", comp["total_encontrados"])
-                col2.metric("Descuento mediana", f"{stats.get('descuento_mediana', 0):.1f}%")
-                col3.metric("Adjudicaciones", stats.get("n_adjudicadas", 0))
+            if ultimo:
+                st.success(f"📦 Análisis previo del {ultimo['fecha_analisis']} · Costo: ${ultimo['costo_usd']:.4f} USD")
+                resultado = ultimo["resultado"]
+                rec = resultado.get("recomendacion", {})
+                postular = rec.get("postular", "incierto")
+                color_r = "#15803D" if postular == "si" else "#DC2626" if postular == "no" else "#D97706"
+                label_r = "✅ POSTULAR" if postular == "si" else "❌ NO POSTULAR" if postular == "no" else "⚠️ CON RESERVAS"
                 
-                st.markdown("###### 📋 Top 10")
-                for c in comp["comparables"][:10]:
-                    desc = c.get("descuento_pct")
-                    desc_str = f"Δ {desc:+.1f}%" if desc is not None else ""
-                    st.markdown(f"""
-                    <div class='aidu-card' style='padding:12px 16px;'>
-                        <div style='display:flex; justify-content:space-between; align-items:start;'>
-                            <div style='flex:1;'>
-                                <div class='aidu-card-title'>{c["nombre"]}</div>
-                                <div class='aidu-card-meta'>🏛️ {c.get("organismo") or "—"} · {formato_clp(c.get("monto_adjudicado", 0))} · {desc_str}</div>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='padding:16px 20px; background:linear-gradient(135deg, {color_r}15 0%, white 70%); "
+                    f"border-left:4px solid {color_r}; border-radius:10px; margin:12px 0;'>"
+                    f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+                    f"<div style='font-size:18px; font-weight:800; color:{color_r};'>{label_r}</div>"
+                    f"<div style='font-size:22px; font-weight:800; color:{color_r};'>{rec.get('confianza', 0)}%</div>"
+                    f"</div>"
+                    f"<div style='font-size:13px; color:#334155; margin-top:8px;'>{resultado.get('resumen_ejecutivo', '')}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
             else:
-                st.info("Sin comparables en el histórico para este perfil")
-        except Exception:
-            st.info("Comparables no disponibles")
-    
-    # ============ TAB 5: PRECALIFICACIÓN ============
-    with t_check:
-        st.markdown("##### ✅ Checklist de precalificación")
-        st.caption("Verifica todos los requisitos antes de avanzar a Ofertar")
-        
-        try:
-            from app.core.precalificacion import obtener_checklist, actualizar_item_checklist, ITEMS_CHECKLIST_DEFAULT
+                st.info("Aún no se ha analizado las bases técnicas de este proyecto.")
             
-            checklist = obtener_checklist(proyecto_id)
-            
-            if not checklist:
-                st.info("Generando checklist inicial...")
-                # Inicializar checklist desde default
-                conn = get_connection()
-                for item in ITEMS_CHECKLIST_DEFAULT:
-                    conn.execute("""
-                        INSERT OR IGNORE INTO proy_checklist (proyecto_id, item_id, descripcion, estado, comentario)
-                        VALUES (?, ?, ?, 'PENDIENTE', '')
-                    """, (proyecto_id, item["id"], item["descripcion"]))
-                conn.commit()
-                conn.close()
-                st.rerun()
-            
-            n_ok = sum(1 for it in checklist if it["estado"] == "OK")
-            n_falta = sum(1 for it in checklist if it["estado"] == "FALTA")
-            n_pend = sum(1 for it in checklist if it["estado"] == "PENDIENTE")
-            
-            cc1, cc2, cc3, cc4 = st.columns(4)
-            cc1.metric("✅ OK", n_ok)
-            cc2.metric("❌ Falta", n_falta)
-            cc3.metric("⏳ Pendiente", n_pend)
-            cc4.metric("Total", len(checklist))
-            
-            # Progreso visual
-            progreso_pct = int((n_ok / len(checklist)) * 100) if checklist else 0
-            st.progress(progreso_pct / 100, text=f"Progreso: {progreso_pct}%")
-            
-            for it in checklist[:20]:
-                color_icon = "#15803D" if it["estado"] == "OK" else "#DC2626" if it["estado"] == "FALTA" else "#94A3B8"
-                icon = "✅" if it["estado"] == "OK" else "❌" if it["estado"] == "FALTA" else "⏳"
-                
-                col_i, col_act = st.columns([4, 1])
-                col_i.markdown(f"""
-                <div style='padding:8px 12px; background:white; border:1px solid #E2E8F0; border-radius:6px; margin-bottom:4px;'>
-                    <div style='display:flex; justify-content:space-between; align-items:center;'>
-                        <span style='font-size:13px;'>{icon} {it["descripcion"]}</span>
-                        <span style='font-size:10px; color:{color_icon}; font-weight:700;'>{it["estado"]}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                with col_act:
-                    nuevo = st.selectbox(
-                        "estado",
-                        ["PENDIENTE", "OK", "FALTA", "NA"],
-                        index=["PENDIENTE", "OK", "FALTA", "NA"].index(it["estado"]) if it["estado"] in ["PENDIENTE", "OK", "FALTA", "NA"] else 0,
-                        key=f"check_{it['item_id']}",
-                        label_visibility="collapsed"
+            archivo = st.file_uploader(
+                "📄 Sube el PDF de las bases técnicas",
+                type=["pdf"],
+                key=f"upload_ia_{proyecto_id}"
+            )
+            if archivo and st.button("🚀 Analizar con Claude", type="primary", key="run_ia"):
+                with st.spinner("🤖 Claude está leyendo las bases..."):
+                    resultado = analizar_pdf_bases(
+                        archivo.read(),
+                        codigo_licitacion=p["codigo_externo"],
+                        proyecto_id=proyecto_id,
+                        forzar_reanalisis=True
                     )
-                    if nuevo != it["estado"]:
-                        actualizar_item_checklist(proyecto_id, it["item_id"], nuevo)
-                        st.rerun()
+                if resultado["ok"]:
+                    st.success(f"✅ Análisis completado · ${resultado['meta']['costo_usd']:.4f} USD")
+                    st.rerun()
+                else:
+                    st.error(f"❌ {resultado.get('error')}")
         except Exception as e:
-            st.info(f"Checklist no disponible: {e}")
+            st.warning(f"⚠️ Módulo IA no disponible: {e}")
     
-    # ============ TAB 6: EQUIPO & HH ============
+    # ============ TAB 5: EQUIPO & HH ============
     with t_equipo:
         st.markdown("##### 👥 Estimación de equipo y horas hombre")
-        
         col1, col2 = st.columns(2)
-        
         with col1:
-            st.markdown("###### Estimación")
+            st.markdown("###### Estimado")
             hh_ig_est = st.number_input("HH Ignacio (estimadas)", value=p.get("hh_ignacio_estimado") or 40, min_value=0, key="hh_ig_est")
             hh_jo_est = st.number_input("HH Jorella (estimadas)", value=p.get("hh_jorella_estimado") or 20, min_value=0, key="hh_jo_est")
-        
         with col2:
-            st.markdown("###### Real (a la fecha)")
+            st.markdown("###### Real")
             hh_ig_real = st.number_input("HH Ignacio (real)", value=p.get("hh_ignacio_real") or 0, min_value=0, key="hh_ig_real")
             hh_jo_real = st.number_input("HH Jorella (real)", value=p.get("hh_jorella_real") or 0, min_value=0, key="hh_jo_real")
         
         if st.button("💾 Guardar HH", type="primary"):
             conn = get_connection()
-            conn.execute("""
-                UPDATE aidu_proyectos
-                SET hh_ignacio_estimado=?, hh_jorella_estimado=?, hh_ignacio_real=?, hh_jorella_real=?
-                WHERE id=?
-            """, (hh_ig_est, hh_jo_est, hh_ig_real, hh_jo_real, proyecto_id))
+            conn.execute(
+                "UPDATE aidu_proyectos SET hh_ignacio_estimado=?, hh_jorella_estimado=?, "
+                "hh_ignacio_real=?, hh_jorella_real=? WHERE id=?",
+                (hh_ig_est, hh_jo_est, hh_ig_real, hh_jo_real, proyecto_id)
+            )
             conn.commit()
             conn.close()
             st.success("✅ Guardado")
             st.rerun()
         
-        # Cálculo de costos
         try:
             from app.core.configuracion import obtener_config
             cfg = obtener_config()
@@ -1562,107 +1483,52 @@ def render_detalle_proyecto(proyecto_id: int):
             costo_total_real = (hh_ig_real + hh_jo_real) * cfg.costo_hora_total
             
             st.divider()
-            st.markdown("###### 💰 Costo estimado vs real")
-            
             ce1, ce2, ce3 = st.columns(3)
             ce1.metric("Costo estimado", formato_clp(costo_total_est))
             ce2.metric("Costo real", formato_clp(costo_total_real))
-            
             if hh_ig_est + hh_jo_est > 0:
-                pct_completado = ((hh_ig_real + hh_jo_real) / (hh_ig_est + hh_jo_est)) * 100
-                ce3.metric("% Completado", f"{pct_completado:.0f}%")
+                pct = ((hh_ig_real + hh_jo_real) / (hh_ig_est + hh_jo_est)) * 100
+                ce3.metric("% Completado", f"{pct:.0f}%")
         except Exception:
             pass
     
-    # ============ TAB 7: PAQUETE ============
+    # ============ TAB 6: PAQUETE ============
     with t_paquete:
         st.markdown("##### 📦 Paquete de oferta")
-        st.caption("Generación automática de Word + Excel + Anexos")
+        st.info("🚧 Generador de paquete Word/Excel disponible próximamente. Por ahora puedes preparar la oferta manualmente con los insumos de los demás tabs.")
         
-        if p.get("paquete_generado"):
-            st.success(f"✅ Paquete ya generado · {p.get('paquete_path', '')}")
+        st.markdown("###### Insumos disponibles para tu oferta")
+        st.markdown("""
+- 📊 **Comparables homologados** → rango de precios objetivo (tab Comparables)
+- 💰 **Descuento óptimo** → cuánto descontar del referencial (tab Inteligencia precios)
+- 🤖 **Análisis IA** → requisitos eliminatorios, riesgos, plazos (tab Análisis IA)
+- 👥 **HH estimadas** → costo proyecto (tab Equipo & HH)
+""")
+    
+    # ============ TAB 7: BITÁCORA ============
+    with t_bitacora:
+        st.markdown("##### 📝 Bitácora del proyecto")
         
-        col1, col2 = st.columns(2)
+        # Campo simple de notas (sin tabla bitacora separada que no existe en BD)
+        notas_actuales = p.get("notas") or ""
         
-        with col1:
-            if st.button("📝 Generar Word (Propuesta técnica)", use_container_width=True, type="primary"):
-                try:
-                    from app.core.generador_paquete import generar_word_propuesta
-                    path = generar_word_propuesta(proyecto_id)
-                    if path:
-                        st.success(f"✅ Word generado: {path}")
-                        with open(path, "rb") as f:
-                            st.download_button("⬇️ Descargar Word", f, file_name=f"{p['codigo_externo']}_propuesta.docx")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        nuevas_notas = st.text_area(
+            "Notas y comentarios del proyecto",
+            value=notas_actuales,
+            height=200,
+            key=f"notas_{proyecto_id}"
+        )
         
-        with col2:
-            if st.button("📊 Generar Excel (Oferta económica)", use_container_width=True, type="primary"):
-                try:
-                    from app.core.generador_paquete import generar_excel_economico
-                    path = generar_excel_economico(proyecto_id)
-                    if path:
-                        st.success(f"✅ Excel generado: {path}")
-                        with open(path, "rb") as f:
-                            st.download_button("⬇️ Descargar Excel", f, file_name=f"{p['codigo_externo']}_economico.xlsx")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        if st.button("💾 Guardar notas", type="primary"):
+            conn = get_connection()
+            conn.execute("UPDATE aidu_proyectos SET notas=? WHERE id=?", (nuevas_notas, proyecto_id))
+            conn.commit()
+            conn.close()
+            st.success("✅ Notas guardadas")
+            st.rerun()
         
         st.divider()
-        st.markdown("###### 📋 Lo que incluye el paquete")
-        st.markdown("""
-        - 📄 **Word**: Carta presentación, Propuesta técnica, Equipo, Cronograma, Anexos
-        - 📊 **Excel**: Oferta económica con cubicaciones, Cronograma de pago, Resumen
-        - 📁 **Anexos**: Declaraciones juradas prellenadas con tus datos (RUT, patente, etc.)
-        """)
-    
-    # ============ TAB 8: BITÁCORA ============
-    with t_bitacora:
-        st.markdown("##### 📝 Bitácora cronológica")
-        
-        # Form para nueva nota
-        with st.expander("➕ Agregar nota", expanded=False):
-            nueva_nota = st.text_area("Nota", key="nueva_nota_proy", height=100)
-            if st.button("💾 Guardar nota", type="primary"):
-                if nueva_nota.strip():
-                    conn = get_connection()
-                    conn.execute("""
-                        INSERT INTO bitacora (proyecto_id, tipo, mensaje)
-                        VALUES (?, 'nota', ?)
-                    """, (proyecto_id, nueva_nota.strip()))
-                    conn.commit()
-                    conn.close()
-                    st.success("Nota guardada")
-                    st.rerun()
-        
-        # Listar bitácora
-        conn = get_connection()
-        eventos = conn.execute("""
-            SELECT * FROM bitacora WHERE proyecto_id = ?
-            ORDER BY fecha DESC LIMIT 50
-        """, (proyecto_id,)).fetchall()
-        conn.close()
-        
-        if not eventos:
-            st.caption("Sin eventos registrados aún")
-        else:
-            for e in eventos:
-                tipo = e["tipo"] if "tipo" in e.keys() else "evento"
-                icon_map = {
-                    "nota": "📝", "estado_cambio": "🔄", "ia": "🤖", 
-                    "paquete": "📦", "checklist": "✅", "sistema": "⚙️"
-                }
-                icon = icon_map.get(tipo, "•")
-                
-                st.markdown(f"""
-                <div style='padding:12px 16px; background:white; border:1px solid #E2E8F0; border-left:3px solid #1E40AF; border-radius:8px; margin-bottom:8px;'>
-                    <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-                        <span style='font-weight:600; font-size:13px; color:#0F172A;'>{icon} {tipo.upper()}</span>
-                        <span style='font-size:11px; color:#94A3B8; font-family:JetBrains Mono,monospace;'>{e["fecha"][:16]}</span>
-                    </div>
-                    <div style='font-size:13px; color:#334155; line-height:1.5;'>{e["mensaje"]}</div>
-                </div>
-                """, unsafe_allow_html=True)
+        st.caption(f"📅 Última modificación: {p.get('fecha_modificacion') or p.get('fecha_creacion') or '—'}")
 
 
 # ============================================================
@@ -2076,7 +1942,7 @@ if tab_dashboard:
                     border_color = "#15803D"
                 
                 cat_aidu = v.get("cod_servicio_aidu") or "—"
-                url_mp = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={v['codigo_externo']}"
+                url_mp = url_busqueda_mp(v['codigo_externo'])
                 
                 st.markdown(f"""
                 <div class='aidu-card' style='border-left:3px solid {border_color};'>
@@ -3127,7 +2993,7 @@ if tab_buscar:
                                 st.error(f"Error: {e}")
                         
                         # Link directo a Mercado Público (las bases técnicas reales)
-                        mp_url = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={op['codigo_externo']}"
+                        mp_url = url_busqueda_mp(op['codigo_externo'])
                         st.markdown(
                             f"<a href='{mp_url}' target='_blank' style='display:block; text-align:center; font-size:11px; color:#1E40AF; text-decoration:none; padding:4px 0; margin-top:4px; border:0.5px solid #CBD5E1; border-radius:6px;'>🔗 Ver en MP</a>",
                             unsafe_allow_html=True
@@ -3178,7 +3044,7 @@ if tab_estudio:
         for p in proyectos_estudio:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
             border = "#DC2626" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#0E7490"
-            url_mp = p.get("url_mp") or f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={p['codigo_externo']}"
+            url_mp = p.get("url_mp") or url_busqueda_mp(p['codigo_externo'])
             
             st.markdown(f"""
             <div class='aidu-card' style='border-left:4px solid {border};'>
@@ -3368,7 +3234,7 @@ if tab_subir:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
             border = "#DC2626" if dias is not None and dias <= 1 else "#D97706" if dias is not None and dias <= 3 else "#15803D"
             
-            url_mp = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={p['codigo_externo']}"
+            url_mp = url_busqueda_mp(p['codigo_externo'])
             
             st.markdown(f"""
             <div class='aidu-card' style='border-left:4px solid {border};'>
