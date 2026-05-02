@@ -163,12 +163,15 @@ def render_detalle_proyecto(proyecto_id: int):
 
     st.divider()
 
-    # Tabs internas del proyecto
-    tab_info, tab_precios, tab_comparables, tab_acciones = st.tabs([
-        "📋 Información",
-        "💰 Inteligencia de Precios",
-        "📚 Comparables del Mercado",
+    # Tabs internas del proyecto - vista completa
+    tab_info, tab_precal, tab_precios, tab_comparables, tab_equipo, tab_acciones, tab_bitacora = st.tabs([
+        "📋 Resumen",
+        "✅ Precalificación",
+        "💰 Inteligencia",
+        "📚 Comparables",
+        "👥 Equipo & HH",
         "🎯 Acciones",
+        "📜 Bitácora",
     ])
 
     # ======================================
@@ -202,6 +205,81 @@ def render_detalle_proyecto(proyecto_id: int):
             st.warning("🟡 **Atención**: Cierre en menos de 7 días")
         else:
             st.success("🟢 **Plazo cómodo** para preparar la propuesta")
+
+    # ======================================
+    # TAB: PRECALIFICACIÓN
+    # ======================================
+    with tab_precal:
+        from app.core.precalificacion import (
+            inicializar_checklist, obtener_checklist, toggle_item_checklist,
+            progreso_checklist, registrar_evento
+        )
+        
+        # Inicializar checklist si no existe
+        inicializar_checklist(p["id"])
+        
+        prog = progreso_checklist(p["id"])
+        items = obtener_checklist(p["id"])
+        
+        # Header con progreso
+        col_h1, col_h2 = st.columns([3, 1])
+        with col_h1:
+            st.markdown("##### ✅ Checklist de precalificación")
+            st.caption("Requisitos típicos para licitaciones de consultoría municipal en Chile. Marca lo que ya tienes listo.")
+        with col_h2:
+            st.metric("Progreso", f"{prog['porcentaje']}%", f"{prog['completados']}/{prog['total']}")
+        
+        # Barra de progreso visual
+        st.progress(prog["porcentaje"] / 100, text=f"{prog['completados']} de {prog['total']} items completados")
+        
+        # Alerta si falta mucho
+        if prog["porcentaje"] < 30:
+            st.warning(f"⚠️ Quedan {prog['pendientes']} items por completar. Empieza por los del grupo **Proveedor** y **Equipo**.")
+        elif prog["porcentaje"] < 70:
+            st.info(f"📋 Buen avance. Concéntrate en completar **Propuesta** y **Anexos legales**.")
+        elif prog["porcentaje"] < 100:
+            st.success(f"🎯 Casi listo. Revisa **Garantías** y verifica cada documento antes de subir a MP.")
+        else:
+            st.success("🏆 Precalificación completa. Listo para postular.")
+        
+        st.divider()
+        
+        # Agrupar items por grupo
+        grupos = {}
+        for item in items:
+            g = item["grupo"]
+            if g not in grupos:
+                grupos[g] = []
+            grupos[g].append(item)
+        
+        # Mostrar cada grupo
+        emoji_grupo = {
+            "Proveedor": "🏢",
+            "Experiencia": "📊",
+            "Equipo": "👥",
+            "Propuesta": "📄",
+            "Garantías": "🛡️",
+            "Anexos": "📎",
+        }
+        
+        for grupo, lista_items in grupos.items():
+            n_done = sum(1 for i in lista_items if i["completado"])
+            emoji = emoji_grupo.get(grupo, "📌")
+            with st.expander(f"{emoji} **{grupo}** · {n_done}/{len(lista_items)}", expanded=(n_done < len(lista_items))):
+                for item in lista_items:
+                    completado_actual = bool(item["completado"])
+                    nuevo_estado = st.checkbox(
+                        item["texto"],
+                        value=completado_actual,
+                        key=f"chk_{item['id']}_{p['id']}",
+                        help=f"Requerido en estado: {item['requiere_estado']}"
+                    )
+                    if nuevo_estado != completado_actual:
+                        toggle_item_checklist(item["id"], nuevo_estado)
+                        accion = "Marcado ✓" if nuevo_estado else "Desmarcado"
+                        registrar_evento(p["id"], "checklist", f"{accion}: {item['texto']}")
+                        st.rerun()
+
 
     # ======================================
     # TAB: INTELIGENCIA DE PRECIOS
@@ -357,6 +435,84 @@ def render_detalle_proyecto(proyecto_id: int):
                     col4.metric("Match", f"{c['similarity']:.0f}%")
 
     # ======================================
+    # TAB: EQUIPO & HH
+    # ======================================
+    with tab_equipo:
+        st.markdown("##### 👥 Asignación de Equipo y Horas Hombre")
+        st.caption("Estima HH por persona y calcula costo base AIDU. Tarifa: 2 UF/h ≈ CLP 78.000/h")
+        
+        TARIFA_HORA_CLP = 78_000
+        
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
+            st.markdown("**Ignacio (Director Ejecutivo · Ing. Civil)**")
+            hh_ig = st.number_input(
+                "HH Ignacio",
+                min_value=0, max_value=500,
+                value=int(p["hh_ignacio_estimado"] or 0),
+                step=5,
+                key=f"hh_ig_{p['id']}"
+            )
+            st.caption(f"Costo: {formato_clp(hh_ig * TARIFA_HORA_CLP)}")
+        
+        with col_e2:
+            st.markdown("**Jorella (Socia Operacional · Ing. Comercial)**")
+            hh_jo = st.number_input(
+                "HH Jorella",
+                min_value=0, max_value=500,
+                value=int(p["hh_jorella_estimado"] or 0),
+                step=5,
+                key=f"hh_jo_{p['id']}"
+            )
+            st.caption(f"Costo: {formato_clp(hh_jo * TARIFA_HORA_CLP)}")
+        
+        # Botón guardar HH
+        if st.button("💾 Guardar HH estimadas", key=f"save_hh_{p['id']}", type="primary"):
+            from app.core.precalificacion import registrar_evento
+            conn_save = get_connection()
+            try:
+                conn_save.execute("""
+                    UPDATE aidu_proyectos 
+                    SET hh_ignacio_estimado = ?, hh_jorella_estimado = ?, fecha_modificacion = datetime('now')
+                    WHERE id = ?
+                """, (hh_ig, hh_jo, p["id"]))
+                conn_save.commit()
+                registrar_evento(p["id"], "estimacion", f"HH actualizadas: Ignacio {hh_ig}h, Jorella {hh_jo}h")
+                st.success("✅ HH guardadas")
+                st.rerun()
+            finally:
+                conn_save.close()
+        
+        st.divider()
+        
+        # Resumen de costos
+        total_hh = hh_ig + hh_jo
+        costo_base = total_hh * TARIFA_HORA_CLP
+        overhead_pct = 18
+        costo_overhead = round(costo_base * overhead_pct / 100)
+        costo_total = costo_base + costo_overhead
+        
+        st.markdown("##### 💰 Costo base AIDU")
+        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+        col_c1.metric("Total HH", f"{total_hh} h")
+        col_c2.metric("Costo HH", formato_clp(costo_base))
+        col_c3.metric(f"Overhead ({overhead_pct}%)", formato_clp(costo_overhead))
+        col_c4.metric("Costo total", formato_clp(costo_total))
+        
+        # Comparar con monto referencial
+        if p["monto_referencial"] and costo_total > 0:
+            margen_max = ((p["monto_referencial"] - costo_total) / p["monto_referencial"]) * 100
+            if margen_max > 30:
+                st.success(f"💚 Margen máximo posible: **{margen_max:.1f}%** sobre referencial. Espacio para descuento competitivo.")
+            elif margen_max > 15:
+                st.info(f"📊 Margen máximo posible: **{margen_max:.1f}%** sobre referencial. Margen razonable.")
+            elif margen_max > 0:
+                st.warning(f"⚠️ Margen máximo posible: **{margen_max:.1f}%** sobre referencial. Margen ajustado, evaluar.")
+            else:
+                st.error(f"🔴 Pérdida de **{margen_max:.1f}%** al precio referencial. **NO postular** sin redefinir alcance.")
+
+
+    # ======================================
     # TAB: ACCIONES
     # ======================================
     with tab_acciones:
@@ -493,12 +649,91 @@ def render_detalle_proyecto(proyecto_id: int):
 
         st.divider()
 
+    # ======================================
+    # TAB: BITÁCORA
+    # ======================================
+    with tab_bitacora:
+        from app.core.precalificacion import obtener_bitacora, registrar_evento
+        
+        st.markdown("##### 📜 Historial cronológico del proyecto")
+        st.caption("Toda la trazabilidad: cambios de estado, decisiones, análisis IA, checklist. Útil para auditoría.")
+        
+        # Agregar nota manual
+        with st.expander("➕ Agregar nota manual", expanded=False):
+            nueva_nota = st.text_area(
+                "Nota",
+                placeholder="Ej: Llamé a la municipalidad, confirmaron que aceptan ofertas digitales...",
+                key=f"nota_{p['id']}",
+                height=80
+            )
+            if st.button("💾 Guardar nota", key=f"save_nota_{p['id']}"):
+                if nueva_nota.strip():
+                    registrar_evento(p["id"], "nota", nueva_nota.strip())
+                    st.success("✅ Nota guardada")
+                    st.rerun()
+                else:
+                    st.warning("La nota no puede estar vacía")
+        
+        st.divider()
+        
+        eventos = obtener_bitacora(p["id"], limit=200)
+        
+        if not eventos:
+            st.info("📭 Sin eventos registrados aún. Las acciones que tomes en el sistema quedarán automáticamente registradas aquí.")
+        else:
+            # Iconos por tipo
+            iconos = {
+                "estado_cambio": "🔄",
+                "paquete": "📦",
+                "ia": "🤖",
+                "nota": "📝",
+                "checklist": "✅",
+                "estimacion": "⏱️",
+                "sistema": "⚙️",
+            }
+            
+            colores = {
+                "estado_cambio": "#1E40AF",
+                "paquete": "#15803D",
+                "ia": "#7C3AED",
+                "nota": "#0891B2",
+                "checklist": "#059669",
+                "estimacion": "#D97706",
+                "sistema": "#64748B",
+            }
+            
+            st.caption(f"**{len(eventos)} eventos** · más reciente arriba")
+            
+            for ev in eventos:
+                icono = iconos.get(ev["tipo"], "📌")
+                color = colores.get(ev["tipo"], "#64748B")
+                fecha = ev["fecha"][:16] if ev["fecha"] else "-"
+                
+                st.markdown(f"""
+                <div style='display:flex; gap:10px; padding:8px 12px; border-left:3px solid {color}; background:#F8FAFC; margin-bottom:4px; border-radius:4px;'>
+                    <div style='font-size:16px;'>{icono}</div>
+                    <div style='flex:1;'>
+                        <div style='font-size:13px; color:#1E293B;'>{ev["texto"]}</div>
+                        <div style='font-size:11px; color:#94A3B8; margin-top:2px;'>
+                            <span style='font-family:monospace;'>{fecha}</span> · 
+                            <span style='color:{color};'>{ev["tipo"]}</span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
 
 # ============================================================
 # HELPERS DE BD
 # ============================================================
 def _cambiar_estado(proyecto_id: int, nuevo_estado: str, paquete: bool = False):
     conn = get_connection()
+    # Obtener estado anterior para registrar el cambio
+    estado_anterior = conn.execute(
+        "SELECT estado FROM aidu_proyectos WHERE id = ?", (proyecto_id,)
+    ).fetchone()
+    estado_anterior = estado_anterior["estado"] if estado_anterior else "?"
+    
     if paquete:
         conn.execute(
             "UPDATE aidu_proyectos SET estado=?, paquete_generado=1, fecha_modificacion=datetime('now','localtime') WHERE id=?",
@@ -511,6 +746,16 @@ def _cambiar_estado(proyecto_id: int, nuevo_estado: str, paquete: bool = False):
         )
     conn.commit()
     conn.close()
+    
+    # Registrar en bitácora
+    try:
+        from app.core.precalificacion import registrar_evento
+        registrar_evento(
+            proyecto_id, "estado_cambio",
+            f"Cambio de estado: {estado_anterior} → {nuevo_estado}"
+        )
+    except Exception:
+        pass
 
 
 def _set_escenario(proyecto_id: int, escenario: str, precio: int, margen: float, prob: int):
