@@ -962,6 +962,212 @@ code {
     border-radius: 4px !important;
     font-size: 13px !important;
 }
+
+/* ============================================================
+   AIDU OP · v13 — Pulido corporativo final
+   ============================================================ */
+
+/* Asegurar que el contenedor principal use todo el ancho disponible
+   y tenga padding superior suficiente para no cortar el header */
+.main .block-container {
+    padding-top: 2.5rem !important;
+    padding-bottom: 4rem !important;
+    max-width: 1400px !important;
+}
+
+/* Toolbar superior de Streamlit más sutil */
+header[data-testid="stHeader"] {
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--aidu-gray-200);
+    height: 3rem !important;
+}
+
+/* Sidebar: mejor scroll y look */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+    border-right: 1px solid var(--aidu-gray-200);
+    box-shadow: 1px 0 4px rgba(15, 23, 42, 0.02);
+}
+
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    padding-top: 1rem;
+}
+
+/* Markdown links inline en cards */
+.aidu-card a {
+    color: var(--aidu-blue) !important;
+    font-weight: 500;
+    text-decoration: none;
+    border-bottom: 1px dashed transparent;
+    transition: all 150ms ease;
+}
+.aidu-card a:hover {
+    border-bottom-color: var(--aidu-blue);
+}
+
+/* Botones Streamlit: más definidos */
+.stButton > button {
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+    border: 1px solid var(--aidu-gray-200) !important;
+}
+.stButton > button:hover {
+    border-color: var(--aidu-blue) !important;
+    background: var(--aidu-gray-50) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(15, 23, 42, 0.06) !important;
+}
+
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--aidu-blue) 0%, var(--aidu-blue-dark) 100%) !important;
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 1px 3px rgba(30, 64, 175, 0.3) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    box-shadow: 0 4px 12px rgba(30, 64, 175, 0.4) !important;
+    transform: translateY(-1px);
+}
+
+/* Hero de página: padding ligero pero no comprime */
+.aidu-hero {
+    padding: 4px 0 12px !important;
+    margin-bottom: 16px !important;
+}
+
+/* Cards de información clickeables */
+.aidu-card-clickable {
+    cursor: pointer !important;
+    transition: all 200ms ease !important;
+}
+.aidu-card-clickable:hover {
+    border-color: var(--aidu-blue) !important;
+    background: linear-gradient(135deg, rgba(30, 64, 175, 0.02) 0%, white 100%) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Tabs internos */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px !important;
+    border-bottom: 1px solid var(--aidu-gray-200) !important;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 6px 6px 0 0 !important;
+    padding: 8px 14px !important;
+    font-weight: 500 !important;
+    color: var(--aidu-gray-700) !important;
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--aidu-blue) !important;
+    background: var(--aidu-gray-50) !important;
+}
+.stTabs [aria-selected="true"] {
+    color: var(--aidu-blue) !important;
+    background: white !important;
+    border-bottom: 2px solid var(--aidu-blue) !important;
+    font-weight: 600 !important;
+}
+
+/* Métricas: número grande y label limpio */
+[data-testid="stMetricValue"] {
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    color: var(--aidu-blue) !important;
+    letter-spacing: -0.5px !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    color: var(--aidu-gray-500) !important;
+    font-weight: 600 !important;
+}
+
+/* Inputs más definidos */
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input,
+.stTextArea > div > div > textarea,
+.stSelectbox > div > div > div {
+    border-radius: 8px !important;
+    border: 1px solid var(--aidu-gray-200) !important;
+    transition: all 150ms ease !important;
+}
+.stTextInput > div > div > input:focus,
+.stNumberInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+    border-color: var(--aidu-blue) !important;
+    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.1) !important;
+}
+
+/* Expanders más limpios */
+[data-testid="stExpander"] {
+    border: 1px solid var(--aidu-gray-200) !important;
+    border-radius: 10px !important;
+    background: white !important;
+}
+[data-testid="stExpander"]:hover {
+    border-color: var(--aidu-blue-light) !important;
+}
+
+/* Alertas */
+[data-testid="stAlert"] {
+    border-radius: 10px !important;
+    border-left-width: 3px !important;
+}
+
+/* Divider */
+hr {
+    margin: 1.5rem 0 !important;
+    border-color: var(--aidu-gray-200) !important;
+    opacity: 0.6;
+}
+
+/* Tabla de información en ficha */
+.aidu-info-table {
+    width: 100%;
+    font-size: 13px;
+    border-collapse: collapse;
+}
+.aidu-info-table tr {
+    border-bottom: 1px solid var(--aidu-gray-100);
+}
+.aidu-info-table tr:last-child {
+    border-bottom: none;
+}
+.aidu-info-table td {
+    padding: 10px 0;
+    vertical-align: top;
+}
+.aidu-info-table td:first-child {
+    color: var(--aidu-gray-500);
+    width: 40%;
+    font-size: 12px;
+}
+.aidu-info-table td:last-child {
+    color: var(--aidu-gray-900);
+    font-weight: 500;
+}
+
+/* Pills de tipo y complejidad */
+.aidu-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 4px;
+}
+.aidu-pill-blue { background: rgba(30, 64, 175, 0.1); color: var(--aidu-blue); }
+.aidu-pill-cyan { background: rgba(14, 116, 144, 0.1); color: #0E7490; }
+.aidu-pill-amber { background: rgba(217, 119, 6, 0.1); color: var(--aidu-warning); }
+.aidu-pill-green { background: rgba(21, 128, 61, 0.1); color: var(--aidu-success); }
+.aidu-pill-red { background: rgba(220, 38, 38, 0.1); color: var(--aidu-danger); }
+.aidu-pill-gray { background: var(--aidu-gray-100); color: var(--aidu-gray-700); }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1004,21 +1210,24 @@ def emoji_dias(d):
 
 def url_licitacion_mp(codigo: str) -> str:
     """
-    URL pública de una licitación en Mercado Público.
-    Usa el buscador público que SÍ funciona sin autenticación,
-    a diferencia de DetailsAcquisition.aspx que requiere querystring 'qs' encriptado.
+    URL canónica de una licitación en Mercado Público.
+    Es la URL OFICIAL que usa MP en todos sus links públicos.
+    Funciona siempre que la licitación esté publicada y vigente.
     """
     if not codigo:
         return "https://www.mercadopublico.cl/"
-    # El buscador público busca por código exacto y muestra la ficha
-    return f"https://www.mercadopublico.cl/Procurement/Modules/RFB/StepsProcessAcquisition.aspx?qs=&idlicitacion={codigo}"
+    return f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={codigo}"
 
 
-def url_busqueda_mp(codigo: str) -> str:
-    """URL de búsqueda en MP (siempre funciona, lleva a resultados con esa licitación)"""
+def url_licitacion_mp(codigo: str) -> str:
+    """
+    Backup: URL de búsqueda en MP por si la licitación no responde directo.
+    Lleva al buscador con el código pre-cargado.
+    """
     if not codigo:
-        return "https://www.mercadopublico.cl/Home/BuscarLicitacion"
-    return f"https://www.mercadopublico.cl/Home/BuscarLicitacion?searchText={codigo}"
+        return "https://www.mercadopublico.cl/Home/Inicio"
+    # URL del nuevo buscador público (sin requerir login)
+    return f"https://www.mercadopublico.cl/Home/Inicio?codigo={codigo}"
 
 
 # ============================================================
@@ -1057,7 +1266,7 @@ def render_detalle_proyecto(proyecto_id: int):
     dias_cierre = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
     color_dias = "#DC2626" if dias_cierre is not None and dias_cierre <= 3 else "#D97706" if dias_cierre is not None and dias_cierre <= 7 else "#15803D"
     
-    url_mp = p.get("url_mp") or url_busqueda_mp(p["codigo_externo"])
+    url_mp = p.get("url_mp") or url_licitacion_mp(p["codigo_externo"])
     
     # ===== HEADER LIMPIO (sin HTML denso que causaba </div> visibles) =====
     col_back, col_spacer, col_mp = st.columns([1, 3, 2])
@@ -1127,11 +1336,12 @@ def render_detalle_proyecto(proyecto_id: int):
                 st.rerun()
     
     # ===== TABS (cada uno con try/except para no romper toda la ficha) =====
-    t_resumen, t_comparables, t_precios, t_ia, t_equipo, t_paquete, t_bitacora = st.tabs([
+    t_resumen, t_comparables, t_precios, t_ia, t_consultas, t_equipo, t_paquete, t_bitacora = st.tabs([
         "📋 Resumen",
         "📊 Comparables",
         "💰 Inteligencia precios",
         "🤖 Análisis IA",
+        "💬 Consultas MP",
         "👥 Equipo & HH",
         "📦 Paquete",
         "📝 Bitácora",
@@ -1139,32 +1349,100 @@ def render_detalle_proyecto(proyecto_id: int):
     
     # ============ TAB 1: RESUMEN ============
     with t_resumen:
+        # Aspectos técnicos extraídos automáticamente
+        try:
+            from app.core.extractor_aspectos import extraer_aspectos, estimar_hh_referencial
+            aspectos = extraer_aspectos(p.get("descripcion") or "", p.get("nombre") or "")
+            hh_ref = estimar_hh_referencial(p.get("monto_referencial") or 0)
+        except Exception:
+            aspectos = {}
+            hh_ref = {}
+        
+        # FILA 1: Aspectos técnicos clave (4 cards)
+        st.markdown("##### 🔧 Aspectos técnicos del proyecto")
+        st.caption("Extraídos automáticamente desde la descripción de MP. Permiten comparar servicios reales (no solo monto).")
+        
+        col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+        
+        m2_val = p.get("metros_cuadrados") or aspectos.get("metros_cuadrados")
+        col_a1.metric(
+            "📐 Superficie",
+            f"{m2_val} m²" if m2_val else "No especifica",
+            help="m² mencionados en la descripción de la licitación"
+        )
+        
+        plazo_val = p.get("plazo_dias") or aspectos.get("plazo_dias")
+        col_a2.metric(
+            "⏱️ Plazo ejecución",
+            f"{plazo_val} días" if plazo_val else "No especifica",
+            help="Plazo total estimado en días corridos"
+        )
+        
+        n_ent = p.get("n_entregables") or aspectos.get("n_entregables", 0)
+        col_a3.metric(
+            "📋 Entregables",
+            f"{n_ent} tipos",
+            help="Cantidad de tipos de entregables identificados (planos, memorias, informes, etc.)"
+        )
+        
+        col_a4.metric(
+            "💪 HH estimadas",
+            f"{hh_ref.get('hh_total', 0)} HH",
+            help=f"~{hh_ref.get('dias_dedicados', 0)} días-persona considerando tarifa AIDU + overhead + margen"
+        )
+        
+        # Pills de tipo y complejidad
+        tipo = p.get("tipo_servicio") or aspectos.get("tipo_servicio", "—")
+        compl = p.get("complejidad") or aspectos.get("complejidad", "—")
+        pill_compl = {"BAJA": "aidu-pill-green", "MEDIA": "aidu-pill-amber", "ALTA": "aidu-pill-red"}.get(compl, "aidu-pill-gray")
+        
+        st.markdown(
+            f"<div style='margin:12px 0 8px;'>"
+            f"<span class='aidu-pill aidu-pill-blue'>📑 {tipo}</span>"
+            f"<span class='aidu-pill {pill_compl}'>🎯 Complejidad {compl}</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+        
+        # Lista de entregables identificados
+        entregables = aspectos.get("entregables", [])
+        if entregables:
+            st.markdown(
+                f"<div style='font-size:12px; color:#64748B; margin-bottom:16px;'>"
+                f"<strong>Entregables detectados:</strong> {' · '.join(entregables)}"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+        
+        st.divider()
+        
+        # FILA 2: Información general + Resumen económico
         col1, col2 = st.columns([2, 1])
         
         with col1:
             st.markdown("##### 📌 Información general")
             
             info_html = (
-                "<div style='background:white; padding:14px 20px; border:1px solid #E2E8F0; border-radius:10px;'>"
-                "<table style='width:100%; font-size:13px; border-collapse:collapse;'>"
-                f"<tr><td style='color:#64748B; padding:6px 0; width:40%;'>Código MP</td><td style='font-family:JetBrains Mono,monospace; font-weight:600;'>{p['codigo_externo']}</td></tr>"
-                f"<tr><td style='color:#64748B; padding:6px 0;'>Mandante</td><td style='font-weight:500;'>{p.get('organismo') or '—'}</td></tr>"
-                f"<tr><td style='color:#64748B; padding:6px 0;'>Región</td><td>{p.get('region') or '—'}</td></tr>"
-                f"<tr><td style='color:#64748B; padding:6px 0;'>Categoría AIDU</td><td>{p.get('cod_servicio_aidu') or '—'}</td></tr>"
-                f"<tr><td style='color:#64748B; padding:6px 0;'>Estado</td><td>{estado_label}</td></tr>"
-                f"<tr><td style='color:#64748B; padding:6px 0;'>Fecha publicación</td><td>{p.get('fecha_publicacion') or '—'}</td></tr>"
-                f"<tr><td style='color:#64748B; padding:6px 0;'>Fecha cierre</td><td><strong style='color:{color_dias};'>{p.get('fecha_cierre') or '—'}</strong></td></tr>"
+                "<div style='background:white; padding:16px 22px; border:1px solid #E2E8F0; border-radius:10px;'>"
+                "<table class='aidu-info-table'>"
+                f"<tr><td>Código MP</td><td style='font-family:JetBrains Mono,monospace;'>{p['codigo_externo']}</td></tr>"
+                f"<tr><td>Mandante</td><td>{p.get('organismo') or '—'}</td></tr>"
+                f"<tr><td>Región</td><td>{p.get('region') or '—'}</td></tr>"
+                f"<tr><td>Categoría AIDU</td><td><span class='aidu-pill aidu-pill-blue'>{p.get('cod_servicio_aidu') or '—'}</span></td></tr>"
+                f"<tr><td>Estado</td><td>{estado_label}</td></tr>"
+                f"<tr><td>Fecha publicación</td><td>{p.get('fecha_publicacion') or '—'}</td></tr>"
+                f"<tr><td>Fecha cierre</td><td><strong style='color:{color_dias};'>{p.get('fecha_cierre') or '—'}</strong></td></tr>"
                 "</table></div>"
             )
             st.markdown(info_html, unsafe_allow_html=True)
             
             if p.get("descripcion"):
-                st.markdown("##### 📄 Descripción")
-                st.markdown(
-                    f"<div style='background:#F8FAFC; padding:14px 18px; border-radius:8px; "
-                    f"font-size:13px; color:#334155; line-height:1.6;'>{p['descripcion']}</div>",
-                    unsafe_allow_html=True
-                )
+                with st.expander("📄 Descripción completa de las bases", expanded=True):
+                    st.markdown(
+                        f"<div style='background:#F8FAFC; padding:14px 18px; border-radius:8px; "
+                        f"font-size:13px; color:#334155; line-height:1.65;'>{p['descripcion']}</div>",
+                        unsafe_allow_html=True
+                    )
             
             # Inteligencia mandante (defensivo)
             try:
@@ -1173,12 +1451,25 @@ def render_detalle_proyecto(proyecto_id: int):
                     mand = analizar_mandante(p["organismo"])
                     if mand and mand.get("encontrado") and mand.get("total_licitaciones", 0) > 0:
                         st.markdown("##### 🏛️ Inteligencia del mandante")
+                        st.caption(f"Datos históricos de **{p['organismo']}** en Mercado Público.")
+                        
                         col_m1, col_m2, col_m3 = st.columns(3)
                         col_m1.metric("📋 Licitaciones", mand.get("total_licitaciones", 0))
                         col_m2.metric("💰 Ticket promedio", formato_clp(mand.get("monto_promedio_clp", 0)))
                         col_m3.metric("📉 Descuento promedio", f"{mand.get('descuento_promedio_pct', 0):.1f}%")
-            except Exception as e:
-                st.caption(f"⚠️ Inteligencia mandante no disponible")
+                        
+                        # Categorías frecuentes
+                        cats = mand.get("categorias_frecuentes", [])[:3]
+                        if cats:
+                            cat_html = " · ".join([f"<span class='aidu-pill aidu-pill-cyan'>{c['categoria']} ({c['n']})</span>" for c in cats])
+                            st.markdown(
+                                f"<div style='margin-top:12px; font-size:12px;'>"
+                                f"<strong style='color:#64748B;'>Categorías que más licita:</strong> {cat_html}"
+                                f"</div>",
+                                unsafe_allow_html=True
+                            )
+            except Exception:
+                st.caption("⚠️ Inteligencia del mandante no disponible")
         
         with col2:
             st.markdown("##### 💰 Resumen económico")
@@ -1203,20 +1494,22 @@ def render_detalle_proyecto(proyecto_id: int):
             
             st.markdown(
                 f"<div style='background:white; padding:18px; border:1px solid #E2E8F0; border-radius:10px;'>"
-                f"<div style='font-size:11px; color:#64748B; text-transform:uppercase; font-weight:600;'>Monto referencial</div>"
-                f"<div style='font-size:24px; font-weight:800; color:#1E40AF; margin:4px 0 8px;'>{formato_clp(monto_ref)}</div>"
-                f"<div style='font-size:11px; font-weight:600; color:{cz}; padding:4px 8px; background:{cz}15; "
-                f"border-radius:4px; display:inline-block;'>{zona}</div>"
-                f"<div style='border-top:1px solid #F1F5F9; padding-top:10px; margin-top:12px;'>"
-                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:3px 0;'>"
-                f"<span>Tarifa hora</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(tarifa)}</span></div>"
-                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:3px 0;'>"
-                f"<span>Costo c/overhead</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(costo_hora)}</span></div>"
+                f"<div style='font-size:11px; color:#64748B; text-transform:uppercase; font-weight:600; letter-spacing:0.5px;'>Monto referencial</div>"
+                f"<div style='font-size:26px; font-weight:800; color:#1E40AF; margin:6px 0 10px; letter-spacing:-0.5px;'>{formato_clp(monto_ref)}</div>"
+                f"<div style='font-size:11px; font-weight:600; color:{cz}; padding:4px 10px; background:{cz}15; "
+                f"border-radius:6px; display:inline-block;'>{zona}</div>"
+                f"<div style='border-top:1px solid #F1F5F9; padding-top:12px; margin-top:14px;'>"
+                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>"
+                f"<span>Tarifa hora AIDU</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(tarifa)}</span></div>"
+                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>"
+                f"<span>Costo c/overhead {overhead}%</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(costo_hora)}</span></div>"
+                f"<div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>"
+                f"<span>HH equivalentes</span><span style='font-weight:600; color:#0F172A;'>{hh_ref.get('hh_total', 0)} HH</span></div>"
                 f"</div></div>",
                 unsafe_allow_html=True
             )
             
-            # Predicción descuento
+            # Predicción descuento con explicación
             try:
                 from app.core.inteligencia_avanzada import predecir_descuento_optimo
                 pred = predecir_descuento_optimo(
@@ -1229,9 +1522,9 @@ def render_detalle_proyecto(proyecto_id: int):
                 st.markdown(
                     f"<div style='background:linear-gradient(135deg, {color_p}10 0%, white 80%); "
                     f"padding:14px 16px; border:1px solid #E2E8F0; border-left:3px solid {color_p}; "
-                    f"border-radius:10px; margin-top:12px;'>"
-                    f"<div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700;'>🎯 Descuento recomendado</div>"
-                    f"<div style='font-size:28px; font-weight:800; color:{color_p}; line-height:1; margin:4px 0;'>{pred['descuento_recomendado_pct']}%</div>"
+                    f"border-radius:10px; margin-top:14px;'>"
+                    f"<div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;'>🎯 Descuento óptimo recomendado</div>"
+                    f"<div style='font-size:28px; font-weight:800; color:{color_p}; line-height:1; margin:6px 0;'>{pred['descuento_recomendado_pct']}%</div>"
                     f"<div style='font-size:11px; color:#64748B;'>Banda: {pred['descuento_minimo_pct']}% – {pred['descuento_maximo_pct']}%</div>"
                     f"<div style='font-size:11px; color:#64748B; margin-top:4px;'>Confianza: <strong style='color:{color_p};'>{pred['confianza']*100:.0f}%</strong></div>"
                     f"</div>",
@@ -1324,23 +1617,49 @@ def render_detalle_proyecto(proyecto_id: int):
                     if fecha and fecha != "—":
                         fecha = fecha[:10]
                     
+                    # Cargar aspectos técnicos del comparable desde BD
+                    conn_c = get_connection()
+                    asp_row = conn_c.execute(
+                        "SELECT metros_cuadrados, plazo_dias, n_entregables, tipo_servicio, complejidad "
+                        "FROM mp_licitaciones_adj WHERE codigo_externo = ?",
+                        (c["codigo_externo"],)
+                    ).fetchone()
+                    conn_c.close()
+                    asp_c = dict(asp_row) if asp_row else {}
+                    
+                    # Pills técnicas
+                    tech_pills = []
+                    if asp_c.get("metros_cuadrados"):
+                        tech_pills.append(f"<span class='aidu-pill aidu-pill-cyan'>📐 {asp_c['metros_cuadrados']} m²</span>")
+                    if asp_c.get("plazo_dias"):
+                        tech_pills.append(f"<span class='aidu-pill aidu-pill-blue'>⏱️ {asp_c['plazo_dias']}d</span>")
+                    if asp_c.get("n_entregables"):
+                        tech_pills.append(f"<span class='aidu-pill aidu-pill-gray'>📋 {asp_c['n_entregables']} entreg.</span>")
+                    if asp_c.get("complejidad"):
+                        c_pill = {"BAJA": "aidu-pill-green", "MEDIA": "aidu-pill-amber", "ALTA": "aidu-pill-red"}.get(asp_c["complejidad"], "aidu-pill-gray")
+                        tech_pills.append(f"<span class='aidu-pill {c_pill}'>🎯 {asp_c['complejidad']}</span>")
+                    
+                    pills_html = " ".join(tech_pills) if tech_pills else ""
+                    
                     st.markdown(
                         f"<div class='aidu-card' style='border-left:3px solid {color_sim};'>"
                         f"<div style='display:flex; justify-content:space-between; align-items:start; gap:16px;'>"
                         f"<div style='flex:1; min-width:0;'>"
-                        f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:4px;'>"
-                        f"<span style='background:{color_sim}; color:white; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700;'>SIM {sim}/100</span>"
+                        f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:6px;'>"
+                        f"<span style='background:{color_sim}; color:white; padding:3px 10px; border-radius:6px; font-size:10px; font-weight:700; letter-spacing:0.4px;'>SIM {sim}/100</span>"
                         f"<span style='font-family:JetBrains Mono,monospace; font-size:11px; color:#94A3B8;'>{c['codigo_externo']}</span>"
                         f"</div>"
-                        f"<div style='font-size:13px; font-weight:600; color:#0F172A; margin-bottom:4px;'>{c['nombre']}</div>"
-                        f"<div style='font-size:12px; color:#64748B;'>"
+                        f"<div style='font-size:13px; font-weight:600; color:#0F172A; margin-bottom:6px;'>{c['nombre']}</div>"
+                        f"<div style='font-size:12px; color:#64748B; margin-bottom:6px;'>"
                         f"🏛️ {c.get('organismo') or '—'} · 📅 {fecha} · 👥 {c.get('n_oferentes') or '?'} oferentes"
-                        f"</div></div>"
+                        f"</div>"
+                        f"<div style='margin-top:6px;'>{pills_html}</div>"
+                        f"</div>"
                         f"<div style='text-align:right; min-width:200px;'>"
                         f"<div style='font-size:11px; color:#64748B;'>Adjudicado: {formato_clp(monto_orig)}</div>"
-                        f"<div style='font-size:18px; font-weight:700; color:#1E40AF;'>{formato_clp(monto_homol)}</div>"
+                        f"<div style='font-size:20px; font-weight:700; color:#1E40AF; line-height:1.2;'>{formato_clp(monto_homol)}</div>"
                         f"<div style='font-size:11px; color:#64748B;'>Homologado{delta_homol}</div>"
-                        f"<div style='font-size:11px; color:#15803D; font-weight:600; margin-top:2px;'>{desc_str}</div>"
+                        f"<div style='font-size:11px; color:#15803D; font-weight:600; margin-top:4px;'>{desc_str}</div>"
                         f"</div></div></div>",
                         unsafe_allow_html=True
                     )
@@ -1350,6 +1669,11 @@ def render_detalle_proyecto(proyecto_id: int):
     # ============ TAB 3: INTELIGENCIA PRECIOS ============
     with t_precios:
         st.markdown("##### 💰 Inteligencia de precios y márgenes")
+        st.caption(
+            "Análisis basado en histórico de Mercado Público. Te decimos qué descuento aplicar al referencial "
+            "y por qué — no son números mágicos, son resultado de cruzar tu mandante, categoría y similares."
+        )
+        
         try:
             from app.core.inteligencia_avanzada import predecir_descuento_optimo
             pred = predecir_descuento_optimo(
@@ -1358,43 +1682,126 @@ def render_detalle_proyecto(proyecto_id: int):
                 p.get("monto_referencial")
             )
             
+            # ===== Las 3 métricas con TOOLTIP explicativo =====
             col1, col2, col3 = st.columns(3)
-            col1.metric("🎯 Descuento óptimo", f"{pred['descuento_recomendado_pct']}%", help=pred["razon"])
-            col2.metric("📉 Mínimo seguro", f"{pred['descuento_minimo_pct']}%")
-            col3.metric("📈 Máximo arriesgado", f"{pred['descuento_maximo_pct']}%")
-            st.caption(f"💡 {pred['razon']} · Confianza: {pred['confianza']*100:.0f}%")
             
+            col1.metric(
+                "🎯 Descuento óptimo",
+                f"{pred['descuento_recomendado_pct']}%",
+                help=(
+                    "Es el descuento que históricamente ha permitido GANAR licitaciones similares manteniendo "
+                    "márgenes saludables. Cae en el centro de la banda — ni muy agresivo ni muy alto."
+                )
+            )
+            col2.metric(
+                "📉 Mínimo seguro",
+                f"{pred['descuento_minimo_pct']}%",
+                help=(
+                    "El descuento más BAJO que aún tiene chance de ganar. Por debajo de esto, los datos "
+                    "muestran que la oferta no fue competitiva. Si tu objetivo es maximizar margen, parte aquí."
+                )
+            )
+            col3.metric(
+                "📈 Máximo arriesgado",
+                f"{pred['descuento_maximo_pct']}%",
+                help=(
+                    "El descuento más ALTO que algunos oferentes han usado para ganar. Sobre esto, el margen se "
+                    "vuelve crítico. Solo aplicar si necesitas la adjudicación a toda costa o si tienes ventajas claras."
+                )
+            )
+            
+            # Explicación del cómo se llegó al número
+            st.markdown(
+                f"<div style='background:#F8FAFC; padding:12px 16px; border-radius:8px; "
+                f"border-left:3px solid #1E40AF; margin:12px 0; font-size:13px; color:#334155;'>"
+                f"<strong>📊 ¿Cómo se calculó?</strong><br>"
+                f"{pred['razon']}<br>"
+                f"<span style='color:#64748B;'>Confianza del modelo: <strong>{pred['confianza']*100:.0f}%</strong> "
+                f"({'Alta' if pred['confianza'] >= 0.7 else 'Media' if pred['confianza'] >= 0.4 else 'Baja'} — "
+                f"{'usar como guía firme' if pred['confianza'] >= 0.7 else 'usar como referencia general' if pred['confianza'] >= 0.4 else 'tomar con precaución, faltan datos'})</span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+            
+            # ===== Recomendación accionable =====
+            monto_ref = p.get("monto_referencial", 0) or 0
+            if monto_ref > 0:
+                precio_optimo = int(monto_ref * (1 - pred['descuento_recomendado_pct'] / 100))
+                precio_minimo = int(monto_ref * (1 - pred['descuento_maximo_pct'] / 100))
+                precio_maximo = int(monto_ref * (1 - pred['descuento_minimo_pct'] / 100))
+                
+                st.markdown("###### 💵 Tu rango de oferta sugerido")
+                col_p1, col_p2, col_p3 = st.columns(3)
+                col_p1.markdown(
+                    f"<div style='background:#FEE2E2; padding:14px; border-radius:10px; text-align:center;'>"
+                    f"<div style='font-size:11px; color:#991B1B; font-weight:700; text-transform:uppercase;'>📉 Más agresivo</div>"
+                    f"<div style='font-size:22px; font-weight:800; color:#991B1B; margin:6px 0;'>{formato_clp(precio_minimo)}</div>"
+                    f"<div style='font-size:11px; color:#7F1D1D;'>{pred['descuento_maximo_pct']}% off</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                col_p2.markdown(
+                    f"<div style='background:#DBEAFE; padding:14px; border-radius:10px; text-align:center; border:2px solid #1E40AF;'>"
+                    f"<div style='font-size:11px; color:#1E40AF; font-weight:700; text-transform:uppercase;'>🎯 Recomendado</div>"
+                    f"<div style='font-size:22px; font-weight:800; color:#1E40AF; margin:6px 0;'>{formato_clp(precio_optimo)}</div>"
+                    f"<div style='font-size:11px; color:#1E3A8A;'>{pred['descuento_recomendado_pct']}% off</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                col_p3.markdown(
+                    f"<div style='background:#DCFCE7; padding:14px; border-radius:10px; text-align:center;'>"
+                    f"<div style='font-size:11px; color:#15803D; font-weight:700; text-transform:uppercase;'>📈 Más holgado</div>"
+                    f"<div style='font-size:22px; font-weight:800; color:#15803D; margin:6px 0;'>{formato_clp(precio_maximo)}</div>"
+                    f"<div style='font-size:11px; color:#14532D;'>{pred['descuento_minimo_pct']}% off</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            
+            # ===== Histórico mandante =====
             if pred.get("historico_mandante"):
                 hm = pred["historico_mandante"]
+                st.divider()
                 st.markdown("###### 🏛️ Histórico con este mandante")
+                st.caption(
+                    f"Estos son los datos reales de descuentos aplicados en proyectos previos con "
+                    f"**{p.get('organismo', 'el mandante')}**. Mientras más proyectos previos, más confiable la predicción."
+                )
                 cm1, cm2, cm3 = st.columns(3)
-                cm1.metric("Proyectos previos", hm.get("n_proyectos", 0))
-                cm2.metric("Descuento promedio", f"{hm.get('descuento_promedio_pct', 0):.1f}%")
-                cm3.metric("Rango histórico", f"{hm.get('descuento_min_pct', 0):.1f}% – {hm.get('descuento_max_pct', 0):.1f}%")
+                cm1.metric("Proyectos previos", hm.get("n_proyectos", 0), help="Cantidad de licitaciones del mandante en BD")
+                cm2.metric("Descuento promedio", f"{hm.get('descuento_promedio_pct', 0):.1f}%", help="% de descuento que aplicaron los adjudicados")
+                cm3.metric("Rango histórico", f"{hm.get('descuento_min_pct', 0):.1f}% – {hm.get('descuento_max_pct', 0):.1f}%", help="Min y Max descuento histórico")
             
-            # Escenarios
-            try:
-                escenarios = calcular_escenarios_precio(proyecto_id)
-                if escenarios.get("ok"):
-                    st.markdown("###### 📊 Escenarios de precio")
-                    cols = st.columns(3)
-                    for i, (key, label, clase) in enumerate([
-                        ("agresivo", "Agresivo", "agresivo"),
-                        ("competitivo", "Competitivo", "competitivo"),
-                        ("premium", "Premium", "premium"),
-                    ]):
-                        e = escenarios.get(key, {})
-                        cols[i].markdown(
-                            f"<div class='escenario-card escenario-{clase}'>"
-                            f"<div class='esc-label'>{label}</div>"
-                            f"<div class='esc-precio'>{formato_clp(e.get('precio', 0))}</div>"
-                            f"<div class='esc-margen'>Margen: {e.get('margen_pct', 0):.1f}%</div>"
-                            f"<div class='esc-prob'>Prob: {e.get('probabilidad', 0)}%</div>"
-                            f"</div>",
-                            unsafe_allow_html=True
-                        )
-            except Exception:
-                pass
+            # ===== Recomendación final accionable =====
+            st.divider()
+            
+            if pred['confianza'] >= 0.7:
+                rec_color, rec_icon, rec_label = "#15803D", "✅", "RECOMENDACIÓN FIRME"
+                rec_text = (
+                    f"Los datos respaldan ofertar con un descuento de **{pred['descuento_recomendado_pct']}%** "
+                    f"({formato_clp(precio_optimo) if monto_ref > 0 else '—'}). "
+                    f"Este es el sweet spot histórico para este tipo de proyecto."
+                )
+            elif pred['confianza'] >= 0.4:
+                rec_color, rec_icon, rec_label = "#D97706", "⚠️", "RECOMENDACIÓN GENERAL"
+                rec_text = (
+                    f"Con la data disponible, sugerimos descuento de **{pred['descuento_recomendado_pct']}%**, "
+                    f"pero ajusta según tu lectura de las bases técnicas. Si hay competencia fuerte, mueve hacia el máximo."
+                )
+            else:
+                rec_color, rec_icon, rec_label = "#DC2626", "🔍", "INVESTIGAR MÁS"
+                rec_text = (
+                    f"Hay poca data histórica para este perfil. La sugerencia de **{pred['descuento_recomendado_pct']}%** "
+                    f"es un punto de partida. Revisa las bases en detalle y considera el análisis IA antes de cerrar tu precio."
+                )
+            
+            st.markdown(
+                f"<div style='background:{rec_color}10; padding:16px 20px; border-radius:10px; "
+                f"border-left:4px solid {rec_color}; margin-top:8px;'>"
+                f"<div style='font-size:11px; color:{rec_color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;'>{rec_icon} {rec_label}</div>"
+                f"<div style='font-size:13px; color:#334155; margin-top:6px; line-height:1.6;'>{rec_text}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
         except Exception as e:
             st.info("La inteligencia de precios requiere proyectos con histórico para predecir bien.")
     
@@ -1451,7 +1858,155 @@ def render_detalle_proyecto(proyecto_id: int):
         except Exception as e:
             st.warning(f"⚠️ Módulo IA no disponible: {e}")
     
-    # ============ TAB 5: EQUIPO & HH ============
+    # ============ TAB 5: CONSULTAS MP ============
+    with t_consultas:
+        st.markdown("##### 💬 Ronda de consultas y respuestas")
+        st.caption(
+            "MP tiene un período formal donde los oferentes pueden hacer consultas escritas al mandante. "
+            "Aquí registras las consultas que hiciste, las que hicieron otros, y las respuestas que dio el mandante. "
+            "Esta info es CRÍTICA para entender ambigüedades en las bases."
+        )
+        
+        # Fechas del período de consultas
+        col_fc1, col_fc2 = st.columns(2)
+        with col_fc1:
+            fecha_inicio = st.date_input(
+                "📅 Inicio período de consultas",
+                value=None,
+                key=f"f_ini_consultas_{proyecto_id}",
+                format="DD/MM/YYYY",
+                help="Fecha en que MP abrió el período para enviar consultas"
+            )
+        with col_fc2:
+            fecha_fin = st.date_input(
+                "📅 Fin período de consultas",
+                value=None,
+                key=f"f_fin_consultas_{proyecto_id}",
+                format="DD/MM/YYYY",
+                help="Fecha en que MP cierra el período (después de esto no se aceptan más consultas)"
+            )
+        
+        if st.button("💾 Guardar fechas del período", key="save_fechas_consultas"):
+            conn_c = get_connection()
+            conn_c.execute(
+                "UPDATE aidu_proyectos SET fecha_inicio_consultas=?, fecha_fin_consultas=? WHERE id=?",
+                (fecha_inicio.isoformat() if fecha_inicio else None,
+                 fecha_fin.isoformat() if fecha_fin else None,
+                 proyecto_id)
+            )
+            conn_c.commit()
+            conn_c.close()
+            st.success("✅ Fechas guardadas")
+            st.rerun()
+        
+        # Alerta si estamos en período activo
+        if fecha_inicio and fecha_fin:
+            from datetime import date as _date
+            hoy = _date.today()
+            if fecha_inicio <= hoy <= fecha_fin:
+                dias_quedan = (fecha_fin - hoy).days
+                st.success(f"🟢 **Período de consultas ACTIVO** — quedan {dias_quedan} día(s) para enviar consultas formales en MP.")
+            elif hoy > fecha_fin:
+                st.info(f"🔵 Período cerrado el {fecha_fin}. No se pueden hacer más consultas formales.")
+            else:
+                dias_para_inicio = (fecha_inicio - hoy).days
+                st.warning(f"🟡 Período abre el {fecha_inicio} (en {dias_para_inicio} día(s)).")
+        
+        st.divider()
+        
+        # Listar consultas existentes
+        conn_c = get_connection()
+        consultas = conn_c.execute(
+            "SELECT * FROM proy_consultas WHERE proyecto_id = ? ORDER BY fecha_pregunta DESC",
+            (proyecto_id,)
+        ).fetchall()
+        conn_c.close()
+        consultas = [dict(c) for c in consultas]
+        
+        st.markdown(f"##### 📋 Consultas registradas ({len(consultas)})")
+        
+        # Form para nueva consulta
+        with st.expander("➕ Registrar nueva consulta", expanded=len(consultas) == 0):
+            nueva_pregunta = st.text_area(
+                "Pregunta",
+                key=f"nueva_pregunta_{proyecto_id}",
+                placeholder="Ej: ¿La memoria de cálculo debe incluir análisis dinámico modal espectral o basta con análisis estático equivalente?",
+                height=100
+            )
+            col_nc1, col_nc2 = st.columns(2)
+            with col_nc1:
+                autor_consulta = st.text_input("Autor (opcional)", key=f"autor_q_{proyecto_id}", placeholder="Ej: AIDU Op")
+            with col_nc2:
+                publicada = st.checkbox("Ya publicada en MP", key=f"pub_q_{proyecto_id}")
+            
+            if st.button("💾 Guardar consulta", type="primary", key="save_consulta"):
+                if nueva_pregunta.strip():
+                    conn_c = get_connection()
+                    conn_c.execute(
+                        "INSERT INTO proy_consultas (proyecto_id, pregunta, autor, publicada_en_mp) VALUES (?, ?, ?, ?)",
+                        (proyecto_id, nueva_pregunta.strip(), autor_consulta or "AIDU Op", 1 if publicada else 0)
+                    )
+                    conn_c.commit()
+                    conn_c.close()
+                    st.success("✅ Consulta registrada")
+                    st.rerun()
+                else:
+                    st.warning("Escribe la pregunta antes de guardar")
+        
+        # Render de consultas existentes
+        if not consultas:
+            st.info("📭 Aún no hay consultas registradas. Cuando hagas o veas consultas en MP, regístralas aquí para llevar trazabilidad.")
+        else:
+            for c in consultas:
+                tiene_respuesta = bool(c.get("respuesta"))
+                color_pill = "#15803D" if tiene_respuesta else "#D97706"
+                bg_pill = "#DCFCE7" if tiene_respuesta else "#FEF3C7"
+                label_pill = "✅ Con respuesta" if tiene_respuesta else "⏳ Esperando respuesta"
+                
+                pub_pill = "📡 Publicada en MP" if c.get("publicada_en_mp") else "📝 Borrador interno"
+                pub_color = "#1E40AF" if c.get("publicada_en_mp") else "#64748B"
+                
+                fecha_q = (c.get("fecha_pregunta") or "")[:10]
+                
+                st.markdown(
+                    f"<div class='aidu-card'>"
+                    f"<div style='display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;'>"
+                    f"<span style='background:{bg_pill}; color:{color_pill}; padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;'>{label_pill}</span>"
+                    f"<span style='background:{pub_color}15; color:{pub_color}; padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;'>{pub_pill}</span>"
+                    f"<span style='font-size:11px; color:#94A3B8; margin-left:auto;'>{c.get('autor') or '—'} · {fecha_q}</span>"
+                    f"</div>"
+                    f"<div style='font-size:13px; color:#0F172A; margin-bottom:8px; line-height:1.5;'>"
+                    f"<strong>P:</strong> {c['pregunta']}"
+                    f"</div>"
+                    + (f"<div style='font-size:13px; color:#15803D; padding:10px 14px; background:#F0FDF4; border-left:3px solid #15803D; border-radius:6px; line-height:1.5;'>"
+                       f"<strong>R:</strong> {c['respuesta']}</div>"
+                       if tiene_respuesta else
+                       "<div style='font-size:12px; color:#94A3B8; font-style:italic;'>Sin respuesta del mandante todavía</div>")
+                    + f"</div>",
+                    unsafe_allow_html=True
+                )
+                
+                # Form para responder
+                if not tiene_respuesta:
+                    with st.expander(f"✍️ Registrar respuesta del mandante", expanded=False):
+                        respuesta_txt = st.text_area(
+                            "Respuesta",
+                            key=f"resp_{c['id']}",
+                            height=80
+                        )
+                        if st.button("💾 Guardar respuesta", key=f"save_resp_{c['id']}"):
+                            if respuesta_txt.strip():
+                                conn_c = get_connection()
+                                conn_c.execute(
+                                    "UPDATE proy_consultas SET respuesta=?, fecha_respuesta=datetime('now', 'localtime') WHERE id=?",
+                                    (respuesta_txt.strip(), c["id"])
+                                )
+                                conn_c.commit()
+                                conn_c.close()
+                                st.success("✅ Respuesta registrada")
+                                st.rerun()
+    
+    # ============ TAB 6: EQUIPO & HH ============
     with t_equipo:
         st.markdown("##### 👥 Estimación de equipo y horas hombre")
         col1, col2 = st.columns(2)
@@ -1942,7 +2497,7 @@ if tab_dashboard:
                     border_color = "#15803D"
                 
                 cat_aidu = v.get("cod_servicio_aidu") or "—"
-                url_mp = url_busqueda_mp(v['codigo_externo'])
+                url_mp = url_licitacion_mp(v['codigo_externo'])
                 
                 st.markdown(f"""
                 <div class='aidu-card' style='border-left:3px solid {border_color};'>
@@ -2535,13 +3090,12 @@ if tab_cartera:
     else:
         from app.core.match_score import calcular_match_score
         
-        # Mapa de próxima acción según estado
+        # Mapa de próxima acción según estado (alineado al embudo de 5 etapas)
         proxima_accion = {
-            "EN_CARTERA": ("🔬 Estudiar próximo", "EN_ESTUDIO"),
-            "EN_ESTUDIO": ("📋 Pasar a Preparación", "EN_ESTUDIO"),
-            "EN_ESTUDIO": ("🚀 Marcar Listo para Ofertar", "EN_OFERTA"),
-            "EN_OFERTA": ("📤 Marcar como Ofertada", "LISTO_SUBIR"),
-            "LISTO_SUBIR": ("✅ Marcar Adjudicada", "ADJUDICADO"),
+            "EN_CARTERA":  ("🔬 Pasar a Estudio", "EN_ESTUDIO"),
+            "EN_ESTUDIO":  ("📝 Pasar a Ofertar", "EN_OFERTA"),
+            "EN_OFERTA":   ("📤 Pasar a Subir a MP", "LISTO_SUBIR"),
+            "LISTO_SUBIR": ("🏆 Marcar Adjudicada", "ADJUDICADO"),
         }
         
         for p in proyectos:
@@ -2983,19 +3537,47 @@ if tab_buscar:
                             "+ Cartera",
                             key=f"add_cart_{idx}_{op['codigo_externo']}",
                             use_container_width=True,
-                            help="Convierte esta oportunidad en proyecto AIDU (estado PROSPECTO)"
+                            type="primary",
+                            help="Convierte esta oportunidad en proyecto AIDU (estado EN_CARTERA)"
                         ):
                             try:
                                 pid = convertir_a_proyecto(op["codigo_externo"])
-                                st.success(f"✅ Agregado a cartera (proyecto #{pid})")
+                                st.session_state["view_proyecto_id"] = pid
+                                st.success(f"✅ Agregado a cartera")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
                         
-                        # Link directo a Mercado Público (las bases técnicas reales)
-                        mp_url = url_busqueda_mp(op['codigo_externo'])
+                        # Botón Ver detalle/ficha
+                        if st.button(
+                            "👁️ Ver ficha",
+                            key=f"ver_ficha_{idx}_{op['codigo_externo']}",
+                            use_container_width=True,
+                            help="Abre la ficha de detalle (sin agregar a cartera)"
+                        ):
+                            # Buscar si ya existe como proyecto, si no crearlo temporalmente
+                            try:
+                                conn = get_connection()
+                                existe = conn.execute(
+                                    "SELECT id FROM aidu_proyectos WHERE codigo_externo = ?",
+                                    (op["codigo_externo"],)
+                                ).fetchone()
+                                conn.close()
+                                
+                                if existe:
+                                    st.session_state["view_proyecto_id"] = existe["id"]
+                                else:
+                                    # Crear como prospecto temporal
+                                    pid = convertir_a_proyecto(op["codigo_externo"])
+                                    st.session_state["view_proyecto_id"] = pid
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                        
+                        # Link directo a Mercado Público
+                        mp_url = url_licitacion_mp(op['codigo_externo'])
                         st.markdown(
-                            f"<a href='{mp_url}' target='_blank' style='display:block; text-align:center; font-size:11px; color:#1E40AF; text-decoration:none; padding:4px 0; margin-top:4px; border:0.5px solid #CBD5E1; border-radius:6px;'>🔗 Ver en MP</a>",
+                            f"<a href='{mp_url}' target='_blank' style='display:block; text-align:center; font-size:11px; color:#1E40AF; text-decoration:none; padding:5px 0; margin-top:6px; border:1px solid #CBD5E1; border-radius:6px;'>🔗 Ver en MP</a>",
                             unsafe_allow_html=True
                         )
 
@@ -3044,7 +3626,7 @@ if tab_estudio:
         for p in proyectos_estudio:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
             border = "#DC2626" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#0E7490"
-            url_mp = p.get("url_mp") or url_busqueda_mp(p['codigo_externo'])
+            url_mp = p.get("url_mp") or url_licitacion_mp(p['codigo_externo'])
             
             st.markdown(f"""
             <div class='aidu-card' style='border-left:4px solid {border};'>
@@ -3234,7 +3816,7 @@ if tab_subir:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
             border = "#DC2626" if dias is not None and dias <= 1 else "#D97706" if dias is not None and dias <= 3 else "#15803D"
             
-            url_mp = url_busqueda_mp(p['codigo_externo'])
+            url_mp = url_licitacion_mp(p['codigo_externo'])
             
             st.markdown(f"""
             <div class='aidu-card' style='border-left:4px solid {border};'>
