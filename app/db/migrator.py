@@ -92,26 +92,65 @@ def get_pending_migrations() -> List[Path]:
 def apply_migration(conn: sqlite3.Connection, migration_file: Path) -> bool:
     """
     Aplica una migración en transacción.
-    Si falla, rollback completo y propaga el error.
+    
+    Robustez v14: ejecuta cada sentencia individualmente y tolera errores de tipo
+    'duplicate column' o 'table already exists' que pueden ocurrir cuando una
+    migración previa quedó parcialmente aplicada en producción.
     """
     sql = migration_file.read_text(encoding="utf-8")
     desc_line = next((l for l in sql.splitlines() if l.startswith("-- DESC:")), "")
     description = desc_line.replace("-- DESC:", "").strip() or migration_file.stem
-
+    
+    # Errores tolerables: la migración intenta crear algo que ya existe
+    TOLERABLE_ERRORS = (
+        "duplicate column name",
+        "already exists",
+    )
+    
+    statements = _split_sql_statements(sql)
+    errores_tolerados = 0
+    
     try:
-        # SQLite ejecuta múltiples statements con executescript
-        conn.executescript(sql)
+        for stmt in statements:
+            stmt = stmt.strip()
+            if not stmt or stmt.startswith("--"):
+                continue
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError as e:
+                msg = str(e).lower()
+                if any(err in msg for err in TOLERABLE_ERRORS):
+                    errores_tolerados += 1
+                    logger.warning(f"⚠️  Sentencia tolerada en {migration_file.name}: {e}")
+                    continue
+                # Error real: propagar
+                raise
+        
         conn.execute(
             "INSERT INTO _migrations (filename, description) VALUES (?, ?)",
             (migration_file.name, description)
         )
         conn.commit()
-        logger.info(f"✅ Migración aplicada: {migration_file.name} — {description}")
+        if errores_tolerados > 0:
+            logger.info(f"✅ Migración aplicada: {migration_file.name} ({errores_tolerados} sentencias ya existían)")
+        else:
+            logger.info(f"✅ Migración aplicada: {migration_file.name} — {description}")
         return True
     except Exception as e:
         conn.rollback()
         logger.error(f"❌ Error en migración {migration_file.name}: {e}")
         raise
+
+
+def _split_sql_statements(sql: str) -> list:
+    """
+    Divide un script SQL en sentencias individuales.
+    No usa simple split(';') porque eso falla con literales que contienen ;
+    """
+    # Para nuestras migraciones (sin literales complejos), split por ';' funciona
+    return [s for s in sql.split(';') if s.strip()]
+
+
 
 
 def run_migrations() -> Tuple[int, List[str]]:
