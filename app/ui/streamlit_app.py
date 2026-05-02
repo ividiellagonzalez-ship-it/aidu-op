@@ -624,20 +624,58 @@ with tab_cartera:
     st.divider()
 
     if not proyectos:
-        st.info("📂 Cartera vacía. Carga datos demo desde **⚙️ Sistema**.")
+        st.info("📂 Cartera vacía. Ve a **🎯 Oportunidades** y agrega licitaciones interesantes con el botón '+ Cartera'.")
     else:
+        from app.core.match_score import calcular_match_score
+        
+        # Mapa de próxima acción según estado
+        proxima_accion = {
+            "PROSPECTO": ("🔬 Estudiar próximo", "ESTUDIO"),
+            "ESTUDIO": ("📋 Pasar a Preparación", "EN_PREPARACION"),
+            "EN_PREPARACION": ("🚀 Marcar Listo para Ofertar", "LISTO_OFERTAR"),
+            "LISTO_OFERTAR": ("📤 Marcar como Ofertada", "OFERTADA"),
+            "OFERTADA": ("✅ Marcar Adjudicada", "ADJUDICADA"),
+        }
+        
         for p in proyectos:
             with st.container(border=True):
+                # Calcular match score on-the-fly
+                lic_dict = {
+                    "cod_servicio_aidu": p["cod_servicio_aidu"],
+                    "confianza": 1.0,
+                    "region": p["region"],
+                    "monto_referencial": p["monto_referencial"],
+                    "organismo": p["organismo"],
+                    "fecha_publicacion": p.get("fecha_publicacion") if hasattr(p, "get") else (p["fecha_publicacion"] if "fecha_publicacion" in p.keys() else None),
+                }
+                try:
+                    match = calcular_match_score(lic_dict)
+                    score = match["score"]
+                except Exception:
+                    score = None
+
+                # Badges color del score
+                if score is not None:
+                    if score >= 80:
+                        s_color, s_bg = "#15803D", "#DCFCE7"
+                    elif score >= 60:
+                        s_color, s_bg = "#854F0B", "#FEF3C7"
+                    else:
+                        s_color, s_bg = "#64748B", "#F1F5F9"
+                
                 col1, col2, col3 = st.columns([3, 1, 1])
 
+                badge_score = f"<span style='background:{s_bg}; color:{s_color}; font-size:11px; padding:2px 10px; border-radius:12px; font-weight:600; margin-right:6px;'>Match {score}</span>" if score is not None else ""
+
                 col1.markdown(f"""
-                **{p['nombre']}**
-                <span class="estado-{p['estado']}">{p['estado']}</span>
-                <span style='color:#64748B; font-size:12px; margin-left:8px;'>
-                    🏛️ {p['organismo']} · 📍 {p['region']} · {p['cod_servicio_aidu']}
-                </span>
+                {badge_score}<span class="estado-{p['estado']}">{p['estado']}</span>
+                <span style='color:#94A3B8; font-family:monospace; font-size:11px; margin-left:8px;'>{p['codigo_externo']}</span>
                 <br>
-                <span style='color:#94A3B8; font-family:monospace; font-size:11px;'>{p['codigo_externo']}</span>
+                <span style='font-size:14px; font-weight:600;'>{p['nombre']}</span>
+                <br>
+                <span style='color:#64748B; font-size:12px;'>
+                    🏛️ {p['organismo']} · 📍 {p['region']} · 🎯 {p['cod_servicio_aidu']}
+                </span>
                 """, unsafe_allow_html=True)
 
                 col2.metric("Monto ref.", formato_clp(p["monto_referencial"]))
@@ -646,20 +684,24 @@ with tab_cartera:
                 if dias is not None:
                     col3.metric("Días cierre", f"{emoji_dias(dias)} {dias}")
 
-                # Acciones
+                # Alerta si días al cierre crítico
+                if dias is not None and dias <= 3 and p["estado"] not in ("OFERTADA", "ADJUDICADA", "RECHAZADA"):
+                    st.warning(f"⚠️ ¡Cierra en {dias} día{'s' if dias != 1 else ''}! Acelera la preparación.")
+                
+                # Acciones: botón principal de próxima etapa + Ver detalle
                 col_a, col_b, col_c = st.columns(3)
-                if p["estado"] == "PROSPECTO":
-                    if col_a.button("🔬 Estudiar", key=f"est_{p['id']}", use_container_width=True):
-                        _cambiar_estado(p["id"], "ESTUDIO")
+                
+                accion = proxima_accion.get(p["estado"])
+                if accion:
+                    label, nuevo_estado = accion
+                    if col_a.button(label, key=f"adv_{p['id']}", use_container_width=True, type="primary"):
+                        _cambiar_estado(p["id"], nuevo_estado, paquete=(nuevo_estado == "LISTO_OFERTAR"))
                         st.rerun()
-                elif p["estado"] == "EN_PREPARACION":
-                    if col_a.button("🚀 Ofertar", key=f"of_{p['id']}", use_container_width=True):
-                        _cambiar_estado(p["id"], "LISTO_OFERTAR", paquete=True)
-                        st.rerun()
-                elif p["estado"] == "LISTO_OFERTAR":
-                    col_a.success("📦 Paquete listo")
+                elif p["estado"] == "ADJUDICADA":
+                    col_a.success("🏆 Adjudicada")
+                elif p["estado"] == "RECHAZADA":
+                    col_a.error("❌ Rechazada")
 
-                # ✅ Botón Ver detalle ahora SÍ funciona
                 if col_c.button("👁️ Ver detalle", key=f"det_{p['id']}", use_container_width=True):
                     st.session_state.view_proyecto_id = p["id"]
                     st.rerun()
@@ -760,6 +802,96 @@ with tab_buscar:
                 f"<span style='color:#94A3B8; font-size:12px;'>de {total_universo} disponibles · ordenadas por {orden_label.lower()}</span>",
                 unsafe_allow_html=True
             )
+
+            # ========================================
+            # ANÁLISIS IA MASIVO
+            # ========================================
+            with st.container(border=True):
+                col_ia_left, col_ia_right = st.columns([3, 1])
+                with col_ia_left:
+                    st.markdown("##### 🤖 Análisis IA Masivo")
+                    n_a_analizar = min(20, len(oportunidades))
+                    st.caption(
+                        f"Claude analiza las **top {n_a_analizar} oportunidades** y te dice las 5 más prometedoras. "
+                        f"Costo estimado: ~$0.05 USD · Tiempo: ~30 segundos"
+                    )
+                with col_ia_right:
+                    st.write("")
+                    if st.button(
+                        f"🤖 Analizar top {n_a_analizar}",
+                        use_container_width=True,
+                        type="primary",
+                        key="btn_ia_masivo"
+                    ):
+                        with st.spinner(f"Claude analizando {n_a_analizar} licitaciones..."):
+                            from app.core.analisis_masivo import analisis_masivo
+                            resultado = analisis_masivo(
+                                oportunidades[:n_a_analizar],
+                                top_n=5
+                            )
+                            st.session_state["ia_masivo_resultado"] = resultado
+
+                # Mostrar resultado si existe
+                resultado_ia = st.session_state.get("ia_masivo_resultado")
+                if resultado_ia:
+                    if resultado_ia.get("error"):
+                        st.error(f"⚠️ {resultado_ia['error']}")
+                        if resultado_ia.get("raw"):
+                            with st.expander("Ver respuesta cruda de Claude"):
+                                st.code(resultado_ia["raw"])
+                    else:
+                        st.success(
+                            f"✅ Analizadas {resultado_ia['n_analizadas']} licitaciones · "
+                            f"Costo: ${resultado_ia['costo_usd']} USD · "
+                            f"Tokens: {resultado_ia['tokens_in']}+{resultado_ia['tokens_out']}"
+                        )
+                        
+                        if resultado_ia.get("resumen_ejecutivo"):
+                            st.info(f"📝 **Resumen:** {resultado_ia['resumen_ejecutivo']}")
+                        
+                        st.markdown("###### 🏆 Top recomendaciones de Claude:")
+                        
+                        for i, item in enumerate(resultado_ia.get("top", []), 1):
+                            veredicto = item.get("veredicto", "EVALUAR")
+                            riesgo = item.get("riesgo", "MEDIO")
+                            margen = item.get("margen_estimado_pct", 0)
+                            
+                            # Colores según veredicto
+                            if veredicto == "POSTULAR":
+                                v_color = "#15803D"
+                                v_bg = "#DCFCE7"
+                            elif veredicto == "DESCARTAR":
+                                v_color = "#DC2626"
+                                v_bg = "#FEE2E2"
+                            else:
+                                v_color = "#854F0B"
+                                v_bg = "#FEF3C7"
+                            
+                            # Riesgo
+                            r_emoji = "🟢" if riesgo == "BAJO" else "🟡" if riesgo == "MEDIO" else "🔴"
+                            
+                            st.markdown(f"""
+                            <div style='background:#FFFFFF; border:0.5px solid #CBD5E1; border-left:3px solid {v_color}; border-radius:6px; padding:10px 14px; margin-bottom:6px;'>
+                                <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;'>
+                                    <div>
+                                        <span style='font-size:13px; font-weight:600;'>#{i} · {item.get('nombre', '')[:80]}</span>
+                                        <span style='color:#94A3B8; font-family:monospace; font-size:11px; margin-left:8px;'>{item.get('codigo', '')}</span>
+                                    </div>
+                                    <div>
+                                        <span style='background:{v_bg}; color:{v_color}; font-size:11px; padding:2px 10px; border-radius:12px; font-weight:600;'>{veredicto}</span>
+                                        <span style='font-size:11px; margin-left:6px;'>{r_emoji} Riesgo {riesgo.lower()}</span>
+                                        <span style='font-size:11px; margin-left:6px; color:#1E40AF; font-weight:600;'>Margen ~{margen}%</span>
+                                    </div>
+                                </div>
+                                <div style='font-size:12px; color:#475569;'>{item.get('razon_principal', '')}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        if st.button("🗑️ Limpiar análisis", key="btn_ia_clear"):
+                            del st.session_state["ia_masivo_resultado"]
+                            st.rerun()
+
+            st.divider()
 
             for idx, op in enumerate(oportunidades):
                 m = op["match"]
