@@ -898,6 +898,17 @@ st.divider()
 # ============================================================
 # TABS PRINCIPALES
 # ============================================================
+
+def _mostrar_error_tab(nombre_tab: str, error: Exception):
+    """Muestra un error de pestaña de forma amigable sin crashear toda la app."""
+    import traceback as _tb
+    st.error(f"⚠️ Error al cargar la pestaña **{nombre_tab}**")
+    with st.expander("Ver detalle técnico", expanded=False):
+        st.code(f"{type(error).__name__}: {error}", language="text")
+        st.caption("Si el error persiste, recarga la página o reporta este detalle.")
+        st.code(_tb.format_exc(), language="python")
+
+
 tab_cartera, tab_buscar, tab_intel, tab_sistema = st.tabs([
     "📂 Cartera", "🎯 Oportunidades", "📊 Inteligencia", "⚙️ Sistema"
 ])
@@ -1079,12 +1090,47 @@ with tab_buscar:
         listar_oportunidades, categorias_disponibles, regiones_disponibles,
         convertir_a_proyecto
     )
+    
+    # Cache de 60s para listas estáticas (categorías y regiones cambian raro)
+    @st.cache_data(ttl=60)
+    def _cached_categorias():
+        return categorias_disponibles()
+    
+    @st.cache_data(ttl=60)
+    def _cached_regiones():
+        return regiones_disponibles()
 
     # ----- Filtros laterales en columnas -----
     col_filtros, col_resultados = st.columns([1, 3])
 
     with col_filtros:
         st.markdown("##### 🔧 Filtros")
+        
+        # 🆕 Presets rápidos
+        st.caption("⚡ Presets rápidos")
+        col_p1, col_p2 = st.columns(2)
+        if col_p1.button("📍 Mi región", key="preset_region", use_container_width=True, help="Solo O'Higgins"):
+            st.session_state["op_reg"] = next(
+                (f"{r[0][:30]} ({r[1]})" for r in _cached_regiones() if "Higgins" in r[0]),
+                "Todas"
+            )
+            st.rerun()
+        if col_p2.button("💎 Sweet spot", key="preset_sweet", use_container_width=True, help="$3M - $15M"):
+            st.session_state["op_min"] = 3
+            st.session_state["op_max"] = 15
+            st.rerun()
+        
+        col_p3, col_p4 = st.columns(2)
+        if col_p3.button("🏗️ Estructural", key="preset_estr", use_container_width=True, help="Solo CE-XX"):
+            st.session_state["op_busqueda"] = "estructural"
+            st.rerun()
+        if col_p4.button("🔄 Limpiar", key="preset_clear", use_container_width=True):
+            for k in ["op_busqueda", "op_min", "op_max"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.rerun()
+        
+        st.divider()
 
         # 🆕 Búsqueda libre por palabra clave
         busqueda = st.text_input(
@@ -1095,13 +1141,13 @@ with tab_buscar:
         )
 
         # Categoría AIDU
-        cats = categorias_disponibles()
+        cats = _cached_categorias()
         cat_options = ["Todas"] + [f"{c[0]} ({c[1]})" for c in cats]
         cat_sel_label = st.selectbox("Categoría AIDU", cat_options, key="op_cat")
         cat_sel = "Todas" if cat_sel_label == "Todas" else cat_sel_label.split(" ")[0]
 
         # Región
-        regs = regiones_disponibles()
+        regs = _cached_regiones()
         reg_options = ["Todas"] + [f"{r[0][:30]} ({r[1]})" for r in regs]
         reg_sel_label = st.selectbox("Región", reg_options, key="op_reg")
         reg_sel = "Todas" if reg_sel_label == "Todas" else reg_sel_label.split(" (")[0]
@@ -1143,7 +1189,9 @@ with tab_buscar:
 
     # ----- Resultados -----
     with col_resultados:
-        oportunidades = listar_oportunidades(
+        # Llamada DEFENSIVA: si match_score.py no soporta busqueda_libre,
+        # hacemos el filtro en Python después
+        kwargs_op = dict(
             filtro_categoria=cat_sel,
             filtro_region=reg_sel,
             monto_min=monto_min_m * 1_000_000 if monto_min_m > 0 else None,
@@ -1151,9 +1199,31 @@ with tab_buscar:
             score_min=score_min,
             solo_no_en_cartera=solo_nuevas,
             orden=orden_map[orden_label],
-            busqueda_libre=busqueda,
             limit=100
         )
+        
+        # Intentar pasar busqueda_libre si la función la soporta
+        import inspect
+        try:
+            sig = inspect.signature(listar_oportunidades)
+            soporta_busqueda = "busqueda_libre" in sig.parameters
+        except Exception:
+            soporta_busqueda = False
+        
+        if soporta_busqueda:
+            kwargs_op["busqueda_libre"] = busqueda
+            oportunidades = listar_oportunidades(**kwargs_op)
+        else:
+            # Fallback: filtrar en Python si el backend no soporta búsqueda libre
+            oportunidades = listar_oportunidades(**kwargs_op)
+            if busqueda and busqueda.strip():
+                term = busqueda.strip().lower()
+                oportunidades = [
+                    op for op in oportunidades
+                    if term in (op.get("nombre", "") or "").lower()
+                    or term in (op.get("descripcion", "") or "").lower()
+                    or term in (op.get("organismo", "") or "").lower()
+                ]
 
         if not oportunidades:
             st.info("📭 Sin oportunidades con estos filtros. Prueba poner Monto Min/Max en 0 (sin filtro) o bajar el Match Score mínimo.")
