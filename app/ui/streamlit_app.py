@@ -117,16 +117,17 @@ st.markdown("""
     --aidu-accent-50:    #ECFEFF;
     --aidu-accent-100:   #CFFAFE;
     
-    /* === Estados semánticos === */
-    --aidu-success:      #059669;   /* verde más vibrante */
+    /* === Estados semánticos (paleta SIN rojo, identidad corporativa) === */
+    --aidu-success:      #059669;   /* verde corporativo */
     --aidu-success-50:   #ECFDF5;
     --aidu-success-bg:   #D1FAE5;
-    --aidu-warning:      #D97706;
+    --aidu-warning:      #D97706;   /* naranja para urgencia */
     --aidu-warning-50:   #FFFBEB;
     --aidu-warning-bg:   #FEF3C7;
-    --aidu-danger:       #DC2626;
-    --aidu-danger-50:    #FEF2F2;
-    --aidu-danger-bg:    #FEE2E2;
+    --aidu-danger:       #C2410C;   /* terracota corporativo (no rojo) */
+    --aidu-danger-50:    #FFF7ED;
+    --aidu-danger-bg:    #FFEDD5;
+    --aidu-critical:     #C2410C;   /* alias */
     
     /* === Neutros Slate (modernos, legibles) === */
     --aidu-gray-50:      #F8FAFC;
@@ -343,7 +344,7 @@ div[data-testid="stMetric"]:hover {
 .estado-EN_OFERTA { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 .estado-LISTO_SUBIR { background: #E9D5FF; color: #6B21A8; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 .estado-ADJUDICADO { background: #BBF7D0; color: #14532D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-.estado-PERDIDO { background: #FEE2E2; color: #7F1D1D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-PERDIDO { background: #FFEDD5; color: #7C2D12; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 .estado-DESCARTADO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 
 /* ============ Macro Flow ============ */
@@ -529,7 +530,7 @@ div[data-testid="stMetric"]:hover {
     transform: translateY(-3px); 
     box-shadow: var(--shadow-lg); 
 }
-.escenario-agresivo { background: linear-gradient(180deg, #FEE2E2 0%, white 60%); border-top: 3px solid var(--aidu-danger); }
+.escenario-agresivo { background: linear-gradient(180deg, #FFEDD5 0%, white 60%); border-top: 3px solid var(--aidu-danger); }
 .escenario-competitivo { background: linear-gradient(180deg, #FED7AA 0%, white 60%); border-top: 3px solid var(--aidu-warning); }
 .escenario-premium { background: linear-gradient(180deg, #BBF7D0 0%, white 60%); border-top: 3px solid var(--aidu-success); }
 .esc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--aidu-gray-500); }
@@ -949,7 +950,7 @@ div[data-testid="stMetricDelta"] {
     transition: all 0.2s ease;
 }
 .escenario-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-.escenario-agresivo { background: linear-gradient(180deg, #FEE2E2 0%, white 60%); border-top: 3px solid var(--aidu-danger); }
+.escenario-agresivo { background: linear-gradient(180deg, #FFEDD5 0%, white 60%); border-top: 3px solid var(--aidu-danger); }
 .escenario-competitivo { background: linear-gradient(180deg, #FED7AA 0%, white 60%); border-top: 3px solid var(--aidu-warning); }
 .escenario-premium { background: linear-gradient(180deg, #BBF7D0 0%, white 60%); border-top: 3px solid var(--aidu-success); }
 .esc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--aidu-gray-500); }
@@ -1247,22 +1248,33 @@ def emoji_dias(d):
     return "🟢"
 
 
+def _tabla_existe(conn, nombre):
+    """Helper: verifica si una tabla existe en SQLite. Usado para defensive coding."""
+    try:
+        r = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            (nombre,)
+        ).fetchone()
+        return r is not None
+    except Exception:
+        return False
+
+
 def url_licitacion_mp(codigo: str) -> str:
     """
-    URL pública de Mercado Público para llegar a la ficha de una licitación.
+    URL pública de Mercado Público para llegar a la búsqueda de una licitación.
     
-    Estrategia: usar el buscador público (que NO requiere sesión) con el
-    código pre-cargado. MP redirige automáticamente al detalle si encuentra
-    una coincidencia exacta. Para licitaciones vigentes funciona casi siempre.
+    Estrategia v16: la nueva plataforma pública de MP es una SPA y no acepta
+    parámetros directos en la URL. Por eso abrimos la página de búsqueda
+    pública (NO requiere sesión) y el usuario pega el código.
     
-    Para licitaciones históricas/cerradas, lleva al buscador donde el usuario
-    puede ver el resultado y entrar manualmente.
+    Para facilitar esto, en la UI mostramos un botón "Copiar código" + 
+    "Abrir MP" que copia el código al portapapeles y abre la página.
     """
     if not codigo:
-        return "https://www.mercadopublico.cl/"
-    # URL del buscador público nuevo: lleva a resultados con el código
-    # No requiere sesión, no genera error 403
-    return f"https://www.mercadopublico.cl/Portal/Modules/Site/Busquedas/BuscadorAvanzado.aspx?qs={codigo}"
+        return "https://www.mercadopublico.cl/home/busquedalicitacion"
+    # La SPA pública de MP. Funciona sin sesión.
+    return "https://www.mercadopublico.cl/home/busquedalicitacion"
 
 
 def url_busqueda_mp(codigo: str) -> str:
@@ -1298,13 +1310,13 @@ def render_detalle_proyecto(proyecto_id: int):
         "EN_OFERTA":   ("#9A3412", "#FED7AA", "📝 En Oferta"),
         "LISTO_SUBIR": ("#6B21A8", "#E9D5FF", "📤 Listo Subir"),
         "ADJUDICADO":  ("#14532D", "#BBF7D0", "🏆 Adjudicado"),
-        "PERDIDO":     ("#7F1D1D", "#FEE2E2", "❌ Perdido"),
+        "PERDIDO":     ("#7C2D12", "#FFEDD5", "❌ Perdido"),
         "DESCARTADO":  ("#475569", "#F1F5F9", "🗑️ Descartado"),
     }
     color, bg, estado_label = color_estado_map.get(p["estado"], ("#64748B", "#F1F5F9", p["estado"]))
     
     dias_cierre = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
-    color_dias = "#DC2626" if dias_cierre is not None and dias_cierre <= 3 else "#D97706" if dias_cierre is not None and dias_cierre <= 7 else "#15803D"
+    color_dias = "#C2410C" if dias_cierre is not None and dias_cierre <= 3 else "#D97706" if dias_cierre is not None and dias_cierre <= 7 else "#15803D"
     
     url_mp = p.get("url_mp") or url_licitacion_mp(p["codigo_externo"])
     
@@ -1500,7 +1512,7 @@ def render_detalle_proyecto(proyecto_id: int):
                         col_m1, col_m2, col_m3 = st.columns(3)
                         col_m1.metric("📋 Licitaciones", mand.get("total_licitaciones", 0))
                         col_m2.metric("💰 Ticket promedio", formato_clp(mand.get("monto_promedio_clp", 0)))
-                        col_m3.metric("📉 Descuento promedio", f"{mand.get('descuento_promedio_pct', 0):.1f}%")
+                        col_m3.metric("📊 Ajuste promedio", f"{mand.get('descuento_promedio_pct', 0):.1f}%")
                         
                         # Categorías frecuentes
                         cats = mand.get("categorias_frecuentes", [])[:3]
@@ -1553,7 +1565,7 @@ def render_detalle_proyecto(proyecto_id: int):
                 unsafe_allow_html=True
             )
             
-            # Predicción descuento con explicación
+            # Predicción de ajuste vs referencial
             try:
                 from app.core.inteligencia_avanzada import predecir_descuento_optimo
                 pred = predecir_descuento_optimo(
@@ -1563,19 +1575,110 @@ def render_detalle_proyecto(proyecto_id: int):
                 )
                 color_p = "#15803D" if pred["confianza"] >= 0.6 else "#D97706"
                 
+                # Calcular precio sugerido en CLP (no solo % de "ajuste")
+                monto_ref_pred = p.get("monto_referencial", 0) or 0
+                ajuste_pct = pred['descuento_recomendado_pct']
+                precio_sugerido = int(monto_ref_pred * (1 - ajuste_pct / 100)) if monto_ref_pred else 0
+                
                 st.markdown(
                     f"<div style='background:linear-gradient(135deg, {color_p}10 0%, white 80%); "
                     f"padding:14px 16px; border:1px solid #E2E8F0; border-left:3px solid {color_p}; "
                     f"border-radius:10px; margin-top:14px;'>"
-                    f"<div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;'>🎯 Descuento óptimo recomendado</div>"
-                    f"<div style='font-size:28px; font-weight:800; color:{color_p}; line-height:1; margin:6px 0;'>{pred['descuento_recomendado_pct']}%</div>"
-                    f"<div style='font-size:11px; color:#64748B;'>Banda: {pred['descuento_minimo_pct']}% – {pred['descuento_maximo_pct']}%</div>"
-                    f"<div style='font-size:11px; color:#64748B; margin-top:4px;'>Confianza: <strong style='color:{color_p};'>{pred['confianza']*100:.0f}%</strong></div>"
+                    f"<div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;' "
+                    f"title='Precio estimado al que históricamente se han adjudicado proyectos similares. NO es pérdida — es el precio competitivo de mercado.'>🎯 Precio sugerido de oferta</div>"
+                    f"<div style='font-size:24px; font-weight:800; color:{color_p}; line-height:1.1; margin:6px 0;'>{formato_clp(precio_sugerido) if precio_sugerido else '—'}</div>"
+                    f"<div style='font-size:11px; color:#64748B;'>Ajuste vs referencial: <strong style='color:{color_p};'>{ajuste_pct}%</strong></div>"
+                    f"<div style='font-size:11px; color:#64748B;'>Banda histórica: {pred['descuento_minimo_pct']}% – {pred['descuento_maximo_pct']}%</div>"
+                    f"<div style='font-size:11px; color:#64748B; margin-top:4px;'>Confianza modelo: <strong style='color:{color_p};'>{pred['confianza']*100:.0f}%</strong></div>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
             except Exception:
                 pass
+        
+        # =============================================
+        # 📊 POSICIONAMIENTO DE MERCADO
+        # Visión macro: ¿qué tan competitiva es esta licitación?
+        # =============================================
+        st.divider()
+        st.markdown("##### 📊 Posicionamiento de mercado")
+        st.caption("Datos macro de cómo se compara esta licitación con el universo histórico AIDU.")
+        
+        try:
+            conn_pos = get_connection()
+            cat = p.get("cod_servicio_aidu") or ""
+            region_p = p.get("region") or ""
+            monto_p = p.get("monto_referencial", 0) or 0
+            
+            # 1. Cuántas licitaciones similares se han adjudicado
+            n_similares = conn_pos.execute(
+                "SELECT COUNT(*) FROM mp_licitaciones_adj WHERE estado = 'Adjudicada'"
+            ).fetchone()[0] if cat else 0
+            
+            # 2. Mediana de oferentes en proyectos similares
+            row_oferentes = conn_pos.execute(
+                "SELECT AVG(n_oferentes) FROM mp_licitaciones_adj WHERE n_oferentes > 0"
+            ).fetchone()
+            avg_oferentes = round(row_oferentes[0] or 0, 1)
+            
+            # 3. Posición del monto vs distribución
+            row_montos = conn_pos.execute(
+                "SELECT monto_adjudicado FROM mp_licitaciones_adj WHERE monto_adjudicado > 0 ORDER BY monto_adjudicado"
+            ).fetchall()
+            montos_lista = [r[0] for r in row_montos]
+            
+            posicion_pct = 50
+            if monto_p > 0 and montos_lista:
+                menores = sum(1 for m in montos_lista if m < monto_p)
+                posicion_pct = round((menores / len(montos_lista)) * 100)
+            
+            conn_pos.close()
+            
+            col_p1, col_p2, col_p3 = st.columns(3)
+            
+            col_p1.metric(
+                "🎯 Histórico AIDU", 
+                f"{n_similares} licitaciones",
+                help="Cantidad total de adjudicaciones históricas en BD AIDU. Cuanto más alto, más data para predecir bien."
+            )
+            
+            col_p2.metric(
+                "👥 Competencia típica", 
+                f"~{avg_oferentes} oferentes",
+                help="Promedio de oferentes en licitaciones similares. <3 = baja competencia, 3-7 = normal, >7 = muy competida."
+            )
+            
+            col_p3.metric(
+                "📍 Tu posición de monto", 
+                f"P{posicion_pct}",
+                help=f"Tu monto referencial está sobre el {posicion_pct}% de los proyectos adjudicados históricamente. P50 = mediana del mercado."
+            )
+            
+            # Análisis cualitativo
+            if n_similares >= 10:
+                señal_data = "🟢 Buena base de datos para decisiones informadas"
+            elif n_similares >= 3:
+                señal_data = "🟡 Data limitada — usa también Inteligencia del mandante"
+            else:
+                señal_data = "🟠 Poca data histórica — recomendamos descargar más histórico"
+            
+            if avg_oferentes < 3:
+                señal_comp = "🟢 Poca competencia — ventaja para AIDU"
+            elif avg_oferentes <= 7:
+                señal_comp = "🟡 Competencia normal — diferenciación importante"
+            else:
+                señal_comp = "🟠 Muy competida — solo entrar si tienes ventaja clara"
+            
+            st.markdown(
+                f"<div style='background:#F8FAFC; border-left:3px solid #1D4ED8; padding:12px 16px; border-radius:8px; margin-top:10px; font-size:13px; color:#334155;'>"
+                f"<div><strong>📊 Lectura:</strong></div>"
+                f"<div style='margin-top:6px;'>{señal_data}</div>"
+                f"<div style='margin-top:4px;'>{señal_comp}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+        except Exception as e:
+            st.caption(f"Posicionamiento no disponible: {e}")
     
     # ============================================================
     # TAB FUSIONADO: 📊 ANÁLISIS ECONÓMICO
@@ -1593,7 +1696,7 @@ def render_detalle_proyecto(proyecto_id: int):
 2. **Precio piso** = HH estimadas × Costo HH. Bajo este precio, no cubres tus costos operacionales.
 3. **Precio ofertable** = Precio piso × (1 + margen objetivo %). Tu margen objetivo (default 22%) viene de tu configuración.
 
-**¿Qué es un "descuento"?** Cuando MP publica un monto referencial, los competidores ofertan **menos** que ese referencial. El "descuento promedio histórico" es cuánto bajan los ganadores. **No significa pérdida** — significa "qué rango de precio gana adjudicaciones en este tipo de proyecto".
+**¿Qué es un "ajuste"?** Cuando MP publica un monto referencial, los competidores ofertan **menos** que ese referencial. El "ajuste promedio histórico" es cuánto bajan los ganadores. **No significa pérdida** — significa "qué rango de precio gana adjudicaciones en este tipo de proyecto".
 
 **Cómo usarlo**: 
 - Ver mediana de precios homologados → ese es el precio de mercado.
@@ -1735,7 +1838,7 @@ def render_detalle_proyecto(proyecto_id: int):
                         f"**Decisión: ofertar es viable** pero ajustado. Considera reducir HH si es posible."
                     )
                 else:
-                    color_rec, label_rec = "#DC2626", "🔴 NO CONVIENE"
+                    color_rec, label_rec = "#C2410C", "🔴 NO CONVIENE"
                     texto_rec = (
                         f"La mediana de mercado ({formato_clp(mediana)}) está POR DEBAJO de tu precio piso ({formato_clp(precio_piso)}). "
                         f"En este perfil, los proyectos se adjudican demasiado bajo para tu costo AIDU. "
@@ -1755,7 +1858,7 @@ def render_detalle_proyecto(proyecto_id: int):
                 monto_ref = p.get("monto_referencial", 0) or 0
                 if mediana > 0 and monto_ref > 0:
                     delta_pct = ((monto_ref - mediana) / mediana) * 100
-                    color_delta = "#15803D" if delta_pct > 5 else "#D97706" if delta_pct > -5 else "#DC2626"
+                    color_delta = "#15803D" if delta_pct > 5 else "#D97706" if delta_pct > -5 else "#C2410C"
                     label = "✅ holgado" if delta_pct > 5 else "⚠️ ajustado" if delta_pct > -5 else "🔴 bajo competencia"
                     st.markdown(
                         f"<div style='background:white; padding:14px 18px; border:1px solid #E2E8F0; "
@@ -1785,7 +1888,7 @@ def render_detalle_proyecto(proyecto_id: int):
                 
                 for c in comp["comparables"]:
                     sim = c["similitud"]
-                    color_sim = "#15803D" if sim >= 70 else "#D97706" if sim >= 50 else "#DC2626"
+                    color_sim = "#15803D" if sim >= 70 else "#D97706" if sim >= 50 else "#C2410C"
                     
                     monto_orig = c.get("monto_adjudicado", 0)
                     monto_homol = c["monto_adjudicado_homologado"]
@@ -1797,7 +1900,7 @@ def render_detalle_proyecto(proyecto_id: int):
                         pct = (diff / monto_orig * 100) if monto_orig else 0
                         delta_homol = f" <span style='color:#64748B; font-size:11px;'>(× {factor} = {pct:+.1f}%)</span>"
                     
-                    desc_str = f"{c['descuento_pct']:+.1f}% descuento" if c.get("descuento_pct") is not None else "Sin dato descuento"
+                    desc_str = f"{c['descuento_pct']:+.1f}% ajuste" if c.get("descuento_pct") is not None else "Sin dato ajuste"
                     fecha = c.get("fecha_adjudicacion") or "—"
                     if fecha and fecha != "—":
                         fecha = fecha[:10]
@@ -1875,7 +1978,7 @@ def render_detalle_proyecto(proyecto_id: int):
                 resultado = ultimo["resultado"]
                 rec = resultado.get("recomendacion", {})
                 postular = rec.get("postular", "incierto")
-                color_r = "#15803D" if postular == "si" else "#DC2626" if postular == "no" else "#D97706"
+                color_r = "#15803D" if postular == "si" else "#C2410C" if postular == "no" else "#D97706"
                 label_r = "✅ POSTULAR" if postular == "si" else "❌ NO POSTULAR" if postular == "no" else "⚠️ CON RESERVAS"
                 
                 st.markdown(
@@ -2110,7 +2213,7 @@ def render_detalle_proyecto(proyecto_id: int):
         st.markdown("###### Insumos disponibles para tu oferta")
         st.markdown("""
 - 📊 **Comparables homologados** → rango de precios objetivo (tab Comparables)
-- 💰 **Descuento óptimo** → cuánto descontar del referencial (tab Inteligencia precios)
+- 💰 **Precio sugerido** → qué precio sugerir vs referencial (tab Inteligencia precios)
 - 🤖 **Análisis IA** → requisitos eliminatorios, riesgos, plazos (tab Análisis IA)
 - 👥 **HH estimadas** → costo proyecto (tab Equipo & HH)
 """)
@@ -2505,8 +2608,8 @@ if tab_dashboard:
             st.rerun()
     
     with col_d2:
-        urgent_color = "#DC2626" if n_urgentes > 0 else "#15803D"
-        urgent_bg = "#FEE2E2" if n_urgentes > 0 else "#DCFCE7"
+        urgent_color = "#C2410C" if n_urgentes > 0 else "#15803D"
+        urgent_bg = "#FFEDD5" if n_urgentes > 0 else "#DCFCE7"
         st.markdown(f"""
         <div style='background:linear-gradient(135deg, {urgent_bg} 0%, white 100%); padding:18px 16px; border-radius:14px; border-top:3px solid {urgent_color};'>
             <div style='font-size:11px; color:{urgent_color}; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;'>⏰ Cierran ≤3 días</div>
@@ -2721,7 +2824,7 @@ if tab_dashboard:
             for v in ultimas:
                 dias_cierre = v.get("dias_para_cierre")
                 if dias_cierre is not None and dias_cierre <= 3:
-                    border_color = "#DC2626"
+                    border_color = "#C2410C"
                     urgencia = f"🔴 Cierra en {dias_cierre}d"
                 elif dias_cierre is not None and dias_cierre <= 7:
                     border_color = "#D97706"
@@ -2766,17 +2869,6 @@ if tab_dashboard:
     except Exception:
         pass
 
-
-def _tabla_existe(conn, nombre):
-    """Helper local: verifica si una tabla existe."""
-    try:
-        r = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
-            (nombre,)
-        ).fetchone()
-        return r is not None
-    except Exception:
-        return False
 
 
 # ============================================================
@@ -2841,7 +2933,7 @@ if tab_hoy:
             for v in vigentes:
                 dias_cierre = v.get("dias_para_cierre")
                 if dias_cierre is not None and dias_cierre <= 3:
-                    border_color = "#DC2626"
+                    border_color = "#C2410C"
                 elif dias_cierre is not None and dias_cierre <= 7:
                     border_color = "#D97706"
                 else:
@@ -2963,7 +3055,7 @@ if tab_ia:
             postular = rec.get("postular", "incierto")
             confianza = rec.get("confianza", 0)
             
-            color_rec = "#15803D" if postular == "si" else "#DC2626" if postular == "no" else "#D97706"
+            color_rec = "#15803D" if postular == "si" else "#C2410C" if postular == "no" else "#D97706"
             label_rec = "✅ POSTULAR" if postular == "si" else "❌ NO POSTULAR" if postular == "no" else "⚠️ CON RESERVAS"
             
             st.markdown(f"""
@@ -3012,7 +3104,7 @@ if tab_ia:
                 for req in requisitos:
                     puede = req.get("puede_cumplir", "incierto")
                     icon = "✅" if puede == "si" else "❌" if puede == "no" else "⚠️"
-                    color_req = "#15803D" if puede == "si" else "#DC2626" if puede == "no" else "#D97706"
+                    color_req = "#15803D" if puede == "si" else "#C2410C" if puede == "no" else "#D97706"
                     st.markdown(f"""
                     <div style='padding:10px 14px; background:white; border:1px solid #E2E8F0; border-left:3px solid {color_req}; border-radius:6px; margin-bottom:6px;'>
                         <div style='display:flex; justify-content:space-between;'>
@@ -3029,7 +3121,7 @@ if tab_ia:
                 st.markdown("##### ⏰ Plazos críticos")
                 for p in plazos:
                     crit = p.get("criticidad", "media")
-                    color_p = "#DC2626" if crit == "alta" else "#D97706" if crit == "media" else "#15803D"
+                    color_p = "#C2410C" if crit == "alta" else "#D97706" if crit == "media" else "#15803D"
                     st.markdown(f"""
                     <div style='padding:8px 14px; background:#F8FAFC; border-left:3px solid {color_p}; border-radius:6px; margin-bottom:4px;'>
                         <strong>{p.get('hito', '—')}</strong> · {p.get('fecha_o_dias', '—')} · <span style='color:{color_p}; font-weight:600;'>{crit.upper()}</span>
@@ -3074,9 +3166,9 @@ if tab_ia:
                 st.markdown("##### 🚨 Cláusulas problemáticas detectadas")
                 for cl in clausulas:
                     riesgo = cl.get("riesgo", "medio")
-                    color_r = "#DC2626" if riesgo == "alto" else "#D97706" if riesgo == "medio" else "#94A3B8"
+                    color_r = "#C2410C" if riesgo == "alto" else "#D97706" if riesgo == "medio" else "#94A3B8"
                     st.markdown(f"""
-                    <div style='padding:12px 14px; background:#FEF2F2; border-left:3px solid {color_r}; border-radius:6px; margin-bottom:6px;'>
+                    <div style='padding:12px 14px; background:#FFF7ED; border-left:3px solid {color_r}; border-radius:6px; margin-bottom:6px;'>
                         <div style='font-size:13px; font-weight:600; color:#0F172A;'>⚠️ {cl.get('clausula', '—')}</div>
                         <div style='font-size:12px; color:#64748B; margin-top:4px;'>{cl.get('razon', '')}</div>
                         <div style='font-size:10px; color:{color_r}; font-weight:600; margin-top:4px;'>RIESGO: {riesgo.upper()}</div>
@@ -3404,7 +3496,7 @@ if tab_cartera:
             "EN_OFERTA":   ("#9A3412", "#FED7AA", "📝", "Ofertar"),
             "LISTO_SUBIR": ("#6B21A8", "#E9D5FF", "📤", "Subir MP"),
             "ADJUDICADO":  ("#15803D", "#DCFCE7", "🏆", "Adjudicada"),
-            "PERDIDO":     ("#DC2626", "#FEE2E2", "❌", "Perdida"),
+            "PERDIDO":     ("#C2410C", "#FFEDD5", "❌", "Perdida"),
         }
         
         try:
@@ -3481,7 +3573,7 @@ if tab_cartera:
             elif decision_score >= 50:
                 rec_color, rec_bg, rec_label, rec_icon = "#D97706", "#FEF3C7", "EVALUAR", "🟡"
             else:
-                rec_color, rec_bg, rec_label, rec_icon = "#DC2626", "#FEE2E2", "DESCARTAR", "🔴"
+                rec_color, rec_bg, rec_label, rec_icon = "#C2410C", "#FFEDD5", "DESCARTAR", "🔴"
             
             # Pills técnicas
             tech_pills = []
@@ -3546,7 +3638,7 @@ if tab_cartera:
                     )
                 
                 with col_body2:
-                    color_dias = "#DC2626" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#15803D" if dias is not None else "#94A3B8"
+                    color_dias = "#C2410C" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#15803D" if dias is not None else "#94A3B8"
                     dias_txt = f"{dias}d" if dias is not None else "—"
                     st.markdown(
                         f"<div style='text-align:right;'>"
@@ -3659,8 +3751,8 @@ if tab_buscar:
             from app.core.catalogo_aidu import codigos_por_linea
             st.session_state["op_cats_multi"] = codigos_por_linea("Gestión")
             st.rerun()
-        if col_p4.button("🌎 Zonas AIDU", key="preset_zonas", use_container_width=True, help="V + RM + O'Higgins + Los Lagos"):
-            st.session_state["op_regs_multi"] = ["V", "RM", "VI", "X"]
+        if col_p4.button("🌎 Zonas AIDU", key="preset_zonas", use_container_width=True, help="Antofagasta + V + RM + O'Higgins + Los Lagos"):
+            st.session_state["op_regs_multi"] = ["II", "V", "RM", "VI", "X"]
             st.rerun()
         
         col_p5, col_p6 = st.columns(2)
@@ -3919,8 +4011,8 @@ if tab_buscar:
                                 v_color = "#15803D"
                                 v_bg = "#DCFCE7"
                             elif veredicto == "DESCARTAR":
-                                v_color = "#DC2626"
-                                v_bg = "#FEE2E2"
+                                v_color = "#C2410C"
+                                v_bg = "#FFEDD5"
                             else:
                                 v_color = "#854F0B"
                                 v_bg = "#FEF3C7"
@@ -4026,7 +4118,7 @@ if tab_buscar:
                             """, unsafe_allow_html=True)
                         if op.get("monto_adjudicado") and op.get("monto_referencial"):
                             desc = ((op["monto_adjudicado"] - op["monto_referencial"]) / op["monto_referencial"]) * 100
-                            color_desc = "#DC2626" if desc < -5 else "#15803D"
+                            color_desc = "#C2410C" if desc < -5 else "#15803D"
                             st.markdown(f"""
                             <div style='text-align:right; margin-top:4px;'>
                                 <div style='font-size:11px; color:#64748B;'>Adjudicado</div>
@@ -4078,10 +4170,20 @@ if tab_buscar:
                             except Exception as e:
                                 st.error(f"Error: {e}")
                         
-                        # Link directo a Mercado Público
+                        # Acceso a Mercado Público: copia código al portapapeles + abre MP
+                        # MP nuevo es una SPA sin params en URL; el usuario pega el código en el buscador.
                         mp_url = url_licitacion_mp(op['codigo_externo'])
+                        codigo_op = op['codigo_externo']
                         st.markdown(
-                            f"<a href='{mp_url}' target='_blank' style='display:block; text-align:center; font-size:11px; color:#1E40AF; text-decoration:none; padding:5px 0; margin-top:6px; border:1px solid #CBD5E1; border-radius:6px;'>🔗 Ver en MP</a>",
+                            f"""
+                            <button onclick="navigator.clipboard.writeText('{codigo_op}'); window.open('{mp_url}', '_blank');"
+                                    style='width:100%; padding:8px 10px; margin-top:8px; background:linear-gradient(135deg, #1D4ED8 0%, #1E3A8A 100%); color:white; border:none; border-radius:8px; cursor:pointer; font-size:11px; font-weight:600; box-shadow:0 1px 3px rgba(29,78,216,0.3); transition:all 150ms;'
+                                    onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(29,78,216,0.4)';"
+                                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(29,78,216,0.3)';">
+                                📋 Copiar código + abrir MP
+                            </button>
+                            <div style='font-size:10px; color:#64748B; text-align:center; margin-top:4px; padding:0 4px;'>Pega <code style='background:#F1F5F9; padding:1px 4px; border-radius:3px; font-size:10px;'>{codigo_op}</code> en el buscador de MP</div>
+                            """,
                             unsafe_allow_html=True
                         )
 
@@ -4129,7 +4231,7 @@ if tab_estudio:
         
         for p in proyectos_estudio:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
-            border = "#DC2626" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#0E7490"
+            border = "#C2410C" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#0E7490"
             url_mp = p.get("url_mp") or url_licitacion_mp(p['codigo_externo'])
             
             st.markdown(f"""
@@ -4193,7 +4295,7 @@ if tab_ofertar:
     <div class="aidu-hero">
         <h1 style="margin:0; font-size:32px;">📝 Ofertar</h1>
         <p style="margin:4px 0 0; font-size:14px; color:#64748B;">
-            Confección de oferta técnica y económica asistida por IA · Predicción de descuento óptimo · Generación de paquetes Word/Excel
+            Confección de oferta técnica y económica asistida por IA · Predicción de precio competitivo · Generación de paquetes Word/Excel
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -4224,7 +4326,7 @@ if tab_ofertar:
         
         for p in proyectos_ofertar:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
-            border = "#DC2626" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#1E40AF"
+            border = "#C2410C" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#1E40AF"
             
             st.markdown(f"""
             <div class='aidu-card' style='border-left:4px solid {border};'>
@@ -4251,7 +4353,7 @@ if tab_ofertar:
                     st.rerun()
             
             with col2:
-                if st.button("📊 Predecir descuento", key=f"pred_{p['id']}", use_container_width=True):
+                if st.button("📊 Predecir precio", key=f"pred_{p['id']}", use_container_width=True):
                     try:
                         from app.core.inteligencia_avanzada import predecir_descuento_optimo
                         pred = predecir_descuento_optimo(
@@ -4259,7 +4361,7 @@ if tab_ofertar:
                             p.get("organismo"),
                             p.get("monto_referencial")
                         )
-                        st.info(f"💡 **Recomendado: {pred['descuento_recomendado_pct']}% descuento** · Confianza: {pred['confianza']*100:.0f}%")
+                        st.info(f"💡 **Recomendado: {pred['descuento_recomendado_pct']}% ajuste** · Confianza: {pred['confianza']*100:.0f}%")
                         st.caption(pred["razon"])
                         st.caption(f"Banda segura: {pred['descuento_minimo_pct']}% — {pred['descuento_maximo_pct']}%")
                     except Exception as e:
@@ -4318,7 +4420,7 @@ if tab_subir:
         
         for p in proyectos_subir:
             dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
-            border = "#DC2626" if dias is not None and dias <= 1 else "#D97706" if dias is not None and dias <= 3 else "#15803D"
+            border = "#C2410C" if dias is not None and dias <= 1 else "#D97706" if dias is not None and dias <= 3 else "#15803D"
             
             url_mp = url_licitacion_mp(p['codigo_externo'])
             
@@ -4433,7 +4535,7 @@ if tab_intel:
             if forecast["por_etapa"]:
                 for etapa in forecast["por_etapa"]:
                     barra_pct = etapa["probabilidad_pct"]
-                    color = "#15803D" if barra_pct >= 50 else "#D97706" if barra_pct >= 25 else "#DC2626"
+                    color = "#15803D" if barra_pct >= 50 else "#D97706" if barra_pct >= 25 else "#C2410C"
                     
                     st.markdown(f"""
                     <div style='padding:14px 18px; background:white; border:1px solid #E2E8F0; border-radius:10px; margin-bottom:8px; box-shadow:0 1px 2px rgba(0,0,0,0.04);'>
@@ -4468,7 +4570,7 @@ if tab_intel:
             if win_rate["por_categoria"]:
                 st.markdown("###### 📁 Por categoría AIDU")
                 for cat in win_rate["por_categoria"][:5]:
-                    color = "#15803D" if cat["win_rate_pct"] >= 30 else "#D97706" if cat["win_rate_pct"] >= 15 else "#DC2626"
+                    color = "#15803D" if cat["win_rate_pct"] >= 30 else "#D97706" if cat["win_rate_pct"] >= 15 else "#C2410C"
                     st.markdown(f"""
                     <div style='display:flex; justify-content:space-between; padding:8px 14px; background:#F8FAFC; border-radius:6px; margin-bottom:4px;'>
                         <span><strong>{cat['categoria']}</strong> · {cat['ganadas']}/{cat['postuladas']}</span>
@@ -4479,7 +4581,7 @@ if tab_intel:
             if win_rate["por_mandante"]:
                 st.markdown("###### 🏛️ Top 5 mandantes")
                 for m in win_rate["por_mandante"][:5]:
-                    color = "#15803D" if m["win_rate_pct"] >= 30 else "#D97706" if m["win_rate_pct"] >= 15 else "#DC2626"
+                    color = "#15803D" if m["win_rate_pct"] >= 30 else "#D97706" if m["win_rate_pct"] >= 15 else "#C2410C"
                     st.markdown(f"""
                     <div style='display:flex; justify-content:space-between; padding:8px 14px; background:#F8FAFC; border-radius:6px; margin-bottom:4px;'>
                         <span><strong>{m['mandante']}</strong> · {m['ganadas']}/{m['postuladas']}</span>
@@ -4540,9 +4642,9 @@ if tab_intel:
             if stats["n_total"]:
                 cols = st.columns(4)
                 cols[0].metric("Licitaciones", stats["n_total"])
-                cols[1].metric("Descuento P25", f"{stats['descuento_p25']:.1f}%")
-                cols[2].metric("Descuento mediana", f"{stats['descuento_mediana']:.1f}%")
-                cols[3].metric("Descuento P75", f"{stats['descuento_p75']:.1f}%")
+                cols[1].metric("Ajuste P25", f"{stats['descuento_p25']:.1f}%")
+                cols[2].metric("Ajuste mediana", f"{stats['descuento_mediana']:.1f}%")
+                cols[3].metric("Ajuste P75", f"{stats['descuento_p75']:.1f}%")
                 
                 comparables = licitaciones_similares(cod_sel, limit=10)
                 if comparables:
@@ -4593,7 +4695,7 @@ if tab_intel:
                         c1.metric("Total licitaciones", analisis["total_licitaciones"])
                         c2.metric("Monto promedio", formato_clp(analisis["monto_promedio_clp"]))
                         c3.metric("Monto máximo", formato_clp(analisis["monto_max_clp"]))
-                        c4.metric("Descuento promedio", f"{analisis['descuento_promedio_pct']:.1f}%")
+                        c4.metric("Ajuste promedio", f"{analisis['descuento_promedio_pct']:.1f}%")
                         
                         col_a, col_b = st.columns(2)
                         
@@ -4667,7 +4769,7 @@ if tab_intel:
                         <div style='display:flex; justify-content:space-between; align-items:center;'>
                             <div style='flex:1;'>
                                 <div class='aidu-card-title'>#{i} {c['nombre']}</div>
-                                <div class='aidu-card-meta'>{c['n_adjudicaciones']} adjudicaciones · descuento promedio {c['descuento_promedio_pct']:.1f}%</div>
+                                <div class='aidu-card-meta'>{c['n_adjudicaciones']} adjudicaciones · ajuste promedio {c['descuento_promedio_pct']:.1f}%</div>
                             </div>
                             <div style='text-align:right;'>
                                 <div style='font-size:11px; color:#94A3B8;'>Win rate</div>

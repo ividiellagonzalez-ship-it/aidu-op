@@ -125,6 +125,7 @@ LINEAS_NEGOCIO = {
 # ============================================================
 # Si AIDU expande operaciones, agregar aquí
 REGIONES_INTERES_AIDU = {
+    "II":  "Antofagasta",
     "V":   "Valparaíso",
     "RM":  "Metropolitana",
     "VI":  "O'Higgins",
@@ -133,6 +134,7 @@ REGIONES_INTERES_AIDU = {
 
 # Mapeo desde nombres como aparecen en MP a códigos cortos
 MP_REGION_TO_CODE = {
+    "Antofagasta": "II",
     "Valparaíso": "V",
     "Valparaiso": "V",
     "Metropolitana": "RM",

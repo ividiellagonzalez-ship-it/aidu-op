@@ -168,19 +168,106 @@ def run_migrations() -> Tuple[int, List[str]]:
         applied = get_applied_migrations(conn)
         pending = [m for m in get_pending_migrations() if m.name not in applied]
 
-        if not pending:
+        if pending:
+            logger.info(f"🔄 {len(pending)} migración(es) pendiente(s)")
+            applied_now = []
+            for migration in pending:
+                apply_migration(conn, migration)
+                applied_now.append(migration.name)
+        else:
             logger.info("ℹ️  Sin migraciones pendientes. BD al día.")
-            return 0, []
+            applied_now = []
 
-        logger.info(f"🔄 {len(pending)} migración(es) pendiente(s)")
-        applied_now = []
-        for migration in pending:
-            apply_migration(conn, migration)
-            applied_now.append(migration.name)
-
+        # ============================================================
+        # AUTO-REPARACIÓN POST-MIGRACIÓN (corre SIEMPRE)
+        # 
+        # Defensiva: en producción, una migración puede haber quedado
+        # marcada como aplicada pero con columnas faltantes. Este bloque
+        # se ejecuta cada vez y garantiza el schema mínimo de v15.
+        # ============================================================
+        _auto_reparar_schema(conn)
+        
         return len(applied_now), applied_now
     finally:
         conn.close()
+
+
+def _auto_reparar_schema(conn: sqlite3.Connection):
+    """
+    Garantiza que todas las columnas/tablas críticas existan en producción,
+    incluso si una migración previa falló a mitad y quedó marcada como
+    aplicada. Se ejecuta en cada arranque.
+    
+    Es 100% idempotente: usa try/except sobre cada ALTER TABLE.
+    """
+    columnas_requeridas = {
+        "aidu_proyectos": [
+            ("url_mp", "TEXT"),
+            ("fecha_subida_mp", "TEXT"),
+            ("url_oferta_subida", "TEXT"),
+            ("metros_cuadrados", "INTEGER"),
+            ("plazo_dias", "INTEGER"),
+            ("n_entregables", "INTEGER"),
+            ("tipo_servicio", "TEXT"),
+            ("complejidad", "TEXT"),
+            ("fecha_inicio_consultas", "TEXT"),
+            ("fecha_fin_consultas", "TEXT"),
+        ],
+        "mp_licitaciones_adj": [
+            ("metros_cuadrados", "INTEGER"),
+            ("plazo_dias", "INTEGER"),
+            ("n_entregables", "INTEGER"),
+            ("tipo_servicio", "TEXT"),
+            ("complejidad", "TEXT"),
+        ],
+    }
+    
+    reparados = 0
+    for tabla, columnas in columnas_requeridas.items():
+        # Verificar que la tabla existe primero
+        try:
+            existe = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+                (tabla,)
+            ).fetchone()
+            if not existe:
+                continue
+        except Exception:
+            continue
+        
+        # Para cada columna requerida, intentar agregarla
+        for col_name, col_type in columnas:
+            try:
+                conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {col_name} {col_type}")
+                reparados += 1
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    pass  # Ya existe, perfecto
+                else:
+                    logger.warning(f"⚠️  No se pudo reparar {tabla}.{col_name}: {e}")
+    
+    # Tabla proy_consultas
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS proy_consultas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                proyecto_id INTEGER NOT NULL,
+                fecha_pregunta TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                fecha_respuesta TEXT,
+                pregunta TEXT NOT NULL,
+                respuesta TEXT,
+                publicada_en_mp INTEGER NOT NULL DEFAULT 0,
+                autor TEXT,
+                notas_internas TEXT,
+                FOREIGN KEY (proyecto_id) REFERENCES aidu_proyectos(id)
+            )
+        """)
+    except Exception as e:
+        logger.warning(f"⚠️  No se pudo crear proy_consultas: {e}")
+    
+    if reparados > 0:
+        conn.commit()
+        logger.info(f"🔧 Auto-reparación: {reparados} columnas restauradas")
 
 
 def show_migration_status():
