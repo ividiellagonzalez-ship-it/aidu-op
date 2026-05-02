@@ -66,37 +66,374 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Identidad visual AIDU
+# Sistema de Diseño AIDU Op v2.1 — Profesional
 st.markdown("""
 <style>
-.aidu-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 4px;}
-.aidu-logo .dot { width: 10px; height: 10px; background: #1E40AF; border-radius: 50%; box-shadow: 0 0 12px #3B82F6; }
-.aidu-logo .aidu-text { font-size: 28px; font-weight: 800; color: #1E40AF; letter-spacing: -1px; }
-.aidu-logo .op-text { font-size: 16px; color: #475569; padding: 2px 8px; background: #F1F5F9; border-radius: 6px; }
-div[data-testid="stMetricValue"] { font-weight: 700; color: #1E40AF; }
+/* ============================================================
+   AIDU OP · DESIGN SYSTEM v2.1
+   ============================================================ */
 
-/* Estados */
-.estado-PROSPECTO { background: #F1F5F9; color: #475569; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-.estado-ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-.estado-EN_PREPARACION { background: #DBEAFE; color: #1E40AF; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-.estado-LISTO_OFERTAR { background: #FED7AA; color: #9A3412; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-.estado-OFERTADA { background: #E9D5FF; color: #6B21A8; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-.estado-ADJUDICADA { background: #BBF7D0; color: #14532D; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+/* Tipografía global - Inter via Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* Macro Flow */
-.macro-flow { background: #F8FAFC; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: flex; gap: 12px; align-items: center; border: 1px solid #E2E8F0; }
-.macro-step { flex: 1; padding: 8px 12px; background: white; border-radius: 8px; text-align: center; font-size: 12px; color: #64748B; border: 1px solid #E2E8F0; }
-.macro-arrow { color: #94A3B8; font-weight: 700; }
+:root {
+    --aidu-blue: #1E40AF;
+    --aidu-blue-light: #3B82F6;
+    --aidu-blue-dark: #1E3A8A;
+    --aidu-success: #15803D;
+    --aidu-warning: #D97706;
+    --aidu-danger: #DC2626;
+    --aidu-gray-50: #F8FAFC;
+    --aidu-gray-100: #F1F5F9;
+    --aidu-gray-200: #E2E8F0;
+    --aidu-gray-300: #CBD5E1;
+    --aidu-gray-500: #64748B;
+    --aidu-gray-700: #334155;
+    --aidu-gray-900: #0F172A;
+    
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.10);
+    
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+}
 
-/* Escenarios */
-.escenario-card { padding: 16px; border-radius: 10px; text-align: center; margin: 4px; }
-.escenario-agresivo { background: linear-gradient(180deg, #FEE2E2 0%, white 50%); border-top: 3px solid #DC2626; }
-.escenario-competitivo { background: linear-gradient(180deg, #FED7AA 0%, white 50%); border-top: 3px solid #D97706; }
-.escenario-premium { background: linear-gradient(180deg, #BBF7D0 0%, white 50%); border-top: 3px solid #15803D; }
-.esc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #64748B; }
-.esc-precio { font-size: 28px; font-weight: 800; margin: 8px 0; }
-.esc-margen { font-size: 12px; color: #475569; }
+/* ============ Aplicar Inter a toda la app ============ */
+html, body, [class*="st-"], [class*="css-"], div, p, span, button {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+code, pre, [class*="monospace"] {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* ============ Logo AIDU ============ */
+.aidu-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.aidu-logo .dot {
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(135deg, var(--aidu-blue) 0%, var(--aidu-blue-light) 100%);
+    border-radius: 50%;
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.5);
+}
+.aidu-logo .aidu-text {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--aidu-blue);
+    letter-spacing: -1px;
+}
+.aidu-logo .op-text {
+    font-size: 13px;
+    color: var(--aidu-gray-700);
+    padding: 3px 10px;
+    background: var(--aidu-gray-100);
+    border-radius: 6px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* ============ Tipografía ============ */
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif !important;
+    color: var(--aidu-gray-900) !important;
+    letter-spacing: -0.025em;
+    font-weight: 700 !important;
+}
+
+h1 { font-size: 30px !important; }
+h2 { font-size: 24px !important; }
+h3 { font-size: 19px !important; }
+h4 { font-size: 16px !important; }
+
+/* ============ Métricas profesionales ============ */
+div[data-testid="stMetricValue"] {
+    font-weight: 700;
+    color: var(--aidu-blue);
+    font-size: 28px !important;
+    letter-spacing: -0.025em;
+}
+div[data-testid="stMetricLabel"] {
+    font-size: 12px !important;
+    color: var(--aidu-gray-500) !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+div[data-testid="stMetricDelta"] {
+    font-size: 12px !important;
+    font-weight: 600;
+}
+
+/* ============ Botones primarios ============ */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--aidu-blue) 0%, var(--aidu-blue-light) 100%);
+    border: none;
+    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+.stButton > button[kind="primary"]:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+.stButton > button {
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+/* ============ Inputs ============ */
+.stTextInput input, .stNumberInput input, .stSelectbox > div > div {
+    border-radius: var(--radius-sm) !important;
+    border-color: var(--aidu-gray-200) !important;
+}
+.stTextInput input:focus, .stNumberInput input:focus {
+    border-color: var(--aidu-blue) !important;
+    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.1) !important;
+}
+
+/* ============ Estados con tags ============ */
+.estado-tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+.estado-PROSPECTO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-EN_PREPARACION { background: #DBEAFE; color: #1E40AF; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-LISTO_OFERTAR { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-OFERTADA { background: #E9D5FF; color: #6B21A8; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-ADJUDICADA { background: #BBF7D0; color: #14532D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+
+/* ============ Macro Flow (steppers) ============ */
+.macro-flow {
+    background: linear-gradient(135deg, var(--aidu-gray-50) 0%, white 100%);
+    padding: 16px 20px;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid var(--aidu-gray-200);
+    box-shadow: var(--shadow-sm);
+}
+.macro-step {
+    flex: 1;
+    padding: 10px 14px;
+    background: white;
+    border-radius: var(--radius-sm);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--aidu-gray-500);
+    border: 1px solid var(--aidu-gray-200);
+    transition: all 0.2s ease;
+}
+.macro-arrow { color: var(--aidu-gray-300); font-weight: 700; font-size: 14px; }
+
+/* ============ Tarjetas de oportunidad/proyecto ============ */
+.aidu-card {
+    background: white;
+    border: 1px solid var(--aidu-gray-200);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
+}
+.aidu-card:hover {
+    border-color: var(--aidu-blue-light);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+.aidu-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--aidu-gray-900);
+    margin-bottom: 6px;
+    line-height: 1.3;
+}
+.aidu-card-meta {
+    font-size: 12px;
+    color: var(--aidu-gray-500);
+    line-height: 1.5;
+}
+.aidu-card-code {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 11px;
+    color: var(--aidu-gray-300);
+}
+
+/* ============ Sidebar profesional ============ */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #FCFCFD 0%, #F5F7FA 100%);
+    border-right: 1px solid var(--aidu-gray-200);
+}
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 8px;
+}
+
+/* Items del radio en sidebar como nav vertical */
+[data-testid="stSidebar"] [data-baseweb="radio"] {
+    margin: 0 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] label {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px !important;
+    border-radius: var(--radius-md);
+    margin: 2px 0 !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    color: var(--aidu-gray-700) !important;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] label:hover {
+    background: rgba(30, 64, 175, 0.06);
+    color: var(--aidu-blue) !important;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] input:checked + div + div {
+    color: var(--aidu-blue) !important;
+    font-weight: 600 !important;
+}
+/* Ocultar el círculo del radio */
+[data-testid="stSidebar"] [data-baseweb="radio"] [role="radio"] {
+    display: none !important;
+}
+
+.aidu-sidebar-header {
+    padding: 12px 8px 16px;
+    border-bottom: 1px solid var(--aidu-gray-200);
+    margin-bottom: 16px;
+}
+.aidu-sidebar-stat {
+    padding: 10px 14px;
+    background: white;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--aidu-gray-200);
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--aidu-gray-700);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.aidu-sidebar-stat strong {
+    color: var(--aidu-blue);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+/* ============ Badges ============ */
+.aidu-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--aidu-gray-100);
+    color: var(--aidu-gray-700);
+}
+.aidu-badge-blue { background: rgba(30, 64, 175, 0.1); color: var(--aidu-blue); }
+.aidu-badge-green { background: rgba(21, 128, 61, 0.1); color: var(--aidu-success); }
+.aidu-badge-orange { background: rgba(217, 119, 6, 0.1); color: var(--aidu-warning); }
+.aidu-badge-red { background: rgba(220, 38, 38, 0.1); color: var(--aidu-danger); }
+
+/* ============ Sección hero ============ */
+.aidu-hero {
+    padding: 8px 0 16px;
+    border-bottom: 1px solid var(--aidu-gray-200);
+    margin-bottom: 24px;
+}
+.aidu-hero h1 {
+    margin: 0 !important;
+    font-size: 28px !important;
+    color: var(--aidu-gray-900) !important;
+}
+.aidu-hero p {
+    margin: 4px 0 0 !important;
+    font-size: 14px;
+    color: var(--aidu-gray-500);
+}
+
+/* ============ Escenarios de precio ============ */
+.escenario-card {
+    padding: 18px;
+    border-radius: var(--radius-md);
+    text-align: center;
+    margin: 4px;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
+}
+.escenario-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.escenario-agresivo { background: linear-gradient(180deg, #FEE2E2 0%, white 60%); border-top: 3px solid var(--aidu-danger); }
+.escenario-competitivo { background: linear-gradient(180deg, #FED7AA 0%, white 60%); border-top: 3px solid var(--aidu-warning); }
+.escenario-premium { background: linear-gradient(180deg, #BBF7D0 0%, white 60%); border-top: 3px solid var(--aidu-success); }
+.esc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--aidu-gray-500); }
+.esc-precio { font-size: 26px; font-weight: 800; margin: 8px 0; color: var(--aidu-gray-900); letter-spacing: -0.5px; }
+.esc-margen { font-size: 12px; color: var(--aidu-gray-700); }
 .esc-prob { font-size: 16px; font-weight: 700; margin-top: 8px; }
+
+/* ============ Tablas ============ */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--aidu-gray-200);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+/* ============ Mejoras varias ============ */
+hr {
+    margin: 24px 0 !important;
+    border-color: var(--aidu-gray-200) !important;
+}
+
+/* Reducir padding superior global */
+.block-container {
+    padding-top: 1.5rem !important;
+    max-width: 1280px;
+}
+
+/* Spinner más sutil */
+.stSpinner > div {
+    border-top-color: var(--aidu-blue) !important;
+}
+
+/* Alertas */
+[data-testid="stAlert"] {
+    border-radius: var(--radius-md);
+    border-width: 1px;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Expander más limpio */
+[data-testid="stExpander"] {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--aidu-gray-200);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Code blocks */
+code {
+    background: var(--aidu-gray-100) !important;
+    color: var(--aidu-blue-dark) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-size: 13px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -881,33 +1218,42 @@ if st.session_state.view_proyecto_id is not None:
 
 
 # ============================================================
-# HEADER
+# HEADER PROFESIONAL
 # ============================================================
+estado_h = estado_actual()
+n_licitaciones = estado_h.get("licitaciones_historicas", 0)
+
 col_logo, col_status = st.columns([3, 1])
 
 with col_logo:
     st.markdown(f"""
-    <div class="aidu-logo">
-        <span class="dot"></span>
-        <span class="aidu-text">AIDU</span>
-        <span class="op-text">Op</span>
-        <span style="color: #94A3B8; font-size: 13px; margin-left: 12px;">Sistema de Gestión Comercial · v{get_version()}</span>
-        <span style="background: #15803D; color: white; font-size: 11px; padding: 3px 10px; border-radius: 12px; margin-left: 8px; font-weight: 700;">⚡ MVP CON IA + WORD/EXCEL</span>
+    <div style="display: flex; align-items: center; gap: 14px; padding-top: 4px;">
+        <div class="aidu-logo">
+            <span class="dot"></span>
+            <span class="aidu-text">AIDU</span>
+            <span class="op-text">Op</span>
+        </div>
+        <div style="height: 24px; width: 1px; background: #E2E8F0;"></div>
+        <div>
+            <div style="font-size: 13px; color: #334155; font-weight: 600; line-height: 1.2;">Sistema Comercial B2G</div>
+            <div style="font-size: 11px; color: #94A3B8; line-height: 1.2;">v{get_version()} · Mercado Público Chile</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 with col_status:
-    estado = estado_actual()
-    if estado["licitaciones_historicas"] > 0:
-        st.markdown(
-            f"<div style='text-align:right; color:#0E7490; font-size:12px; padding-top:8px;'>"
-            f"📊 {estado['licitaciones_historicas']:,} licitaciones · ✅ Sistema OK</div>",
-            unsafe_allow_html=True
-        )
+    if n_licitaciones > 0:
+        st.markdown(f"""
+        <div style="text-align: right; padding-top: 10px;">
+            <div style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; background: rgba(21, 128, 61, 0.08); border-radius: 999px; border: 1px solid rgba(21, 128, 61, 0.2);">
+                <span style="width: 6px; height: 6px; background: #15803D; border-radius: 50%; box-shadow: 0 0 8px #15803D;"></span>
+                <span style="font-size: 12px; font-weight: 600; color: #15803D;">Sistema OK · {n_licitaciones:,} licitaciones</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     else:
         st.markdown(
-            f"<div style='text-align:right; color:#9A3412; font-size:12px; padding-top:8px;'>"
-            f"⚠️ BD vacía · Carga datos demo</div>",
+            "<div style='text-align:right; padding-top:10px;'><span style='display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(217, 119, 6, 0.08); border-radius:999px; border:1px solid rgba(217, 119, 6, 0.2); font-size:12px; color:#D97706; font-weight:600;'>⚠️ Sin datos · Configura ticket MP</span></div>",
             unsafe_allow_html=True
         )
 
@@ -979,8 +1325,13 @@ except Exception:
 with st.sidebar:
     st.markdown("""
     <div class="aidu-sidebar-header">
-        <div style="font-size:18px; font-weight:700; color:#1E40AF;">● AIDU Op</div>
-        <div style="font-size:11px; color:#64748B;">Sistema Comercial B2G · v2.1.0-MVP</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span style="width:10px; height:10px; background:linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%); border-radius:50%; box-shadow:0 0 12px rgba(59, 130, 246, 0.5);"></span>
+            <div>
+                <div style="font-size:16px; font-weight:700; color:#1E40AF; letter-spacing:-0.5px; line-height:1.2;">AIDU Op</div>
+                <div style="font-size:10px; color:#94A3B8; line-height:1.2; margin-top:2px;">Sistema Comercial B2G</div>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -993,47 +1344,50 @@ with st.sidebar:
     
     st.divider()
     
-    st.markdown("##### 📡 Estado en vivo")
+    st.markdown("""
+    <div style='font-size:11px; color:#64748B; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; margin-bottom:8px;'>📡 Estado en vivo</div>
+    """, unsafe_allow_html=True)
+    
     st.markdown(f"""
     <div class="aidu-sidebar-stat">
-        🟢 Vigentes hoy: <strong>{_stats_vig['publicadas_24h']}</strong>
+        <span>🟢 Vigentes hoy</span>
+        <strong>{_stats_vig['publicadas_24h']}</strong>
     </div>
     <div class="aidu-sidebar-stat">
-        🟡 Cierran &lt;3 días: <strong>{_stats_vig['cierran_proximos_3_dias']}</strong>
+        <span>🔴 Cierran ≤3d</span>
+        <strong>{_stats_vig['cierran_proximos_3_dias']}</strong>
     </div>
     <div class="aidu-sidebar-stat">
-        🎯 Match AIDU: <strong>{_stats_vig['con_match_aidu']}</strong>
+        <span>🎯 Match AIDU</span>
+        <strong>{_stats_vig['con_match_aidu']}</strong>
     </div>
     """, unsafe_allow_html=True)
     
     st.divider()
-    st.caption(f"Última actualización: {_stats_vig.get('ultima_actualizacion', '—') or '—'}")
-    st.caption("[Ver en GitHub](https://github.com/ividiellagonzalez-ship-it/aidu-op)")
+    
+    ult_act = _stats_vig.get('ultima_actualizacion') or '—'
+    if ult_act != '—':
+        ult_act = ult_act[:16]  # Solo fecha + hora corta
+    
+    st.markdown(f"""
+    <div style='font-size:10px; color:#94A3B8; padding:0 8px;'>
+        <div>Última sync: <strong style='color:#475569;'>{ult_act}</strong></div>
+        <div style='margin-top:6px;'><a href='https://github.com/ividiellagonzalez-ship-it/aidu-op' target='_blank' style='color:#3B82F6; text-decoration:none;'>📦 Ver código →</a></div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ============================================================
 # CONTENIDO PRINCIPAL — según sección elegida
 # ============================================================
 
-# Mantener compatibilidad: variables tab_* siguen existiendo pero solo
-# la sección activa se renderiza
-class _Tab:
-    """Stub de st.tabs para compatibilidad. Solo activa el contenido si coincide."""
-    def __init__(self, activo):
-        self.activo = activo
-    def __enter__(self):
-        return self
-    def __exit__(self, *args):
-        return False
-    def __bool__(self):
-        return self.activo
-
-tab_cartera = _Tab(seccion == "📂 Cartera")
-tab_buscar = _Tab(seccion == "🎯 Oportunidades")
-tab_intel = _Tab(seccion == "📊 Inteligencia")
-tab_sistema = _Tab(seccion == "🛠️ Sistema")
-tab_hoy = _Tab(seccion == "🔥 Hoy")
-tab_config = _Tab(seccion == "⚙️ Configuración")
+# Booleanos para activar cada sección. Patrón más simple que st.tabs original.
+tab_cartera = (seccion == "📂 Cartera")
+tab_buscar = (seccion == "🎯 Oportunidades")
+tab_intel = (seccion == "📊 Inteligencia")
+tab_sistema = (seccion == "🛠️ Sistema")
+tab_hoy = (seccion == "🔥 Hoy")
+tab_config = (seccion == "⚙️ Configuración")
 
 
 # ====================
@@ -1043,8 +1397,12 @@ tab_config = _Tab(seccion == "⚙️ Configuración")
 # TAB: 🔥 HOY (v7 — licitaciones publicadas en últimas 24h)
 # ============================================================
 if tab_hoy:
-    st.markdown("## 🔥 Lo nuevo de hoy")
-    st.caption("Licitaciones publicadas recientemente en Mercado Público que calzan con tu perfil AIDU")
+    st.markdown("""
+    <div class="aidu-hero">
+        <h1 style="margin:0; font-size:28px;">🔥 Lo nuevo de hoy</h1>
+        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">Licitaciones publicadas recientemente en Mercado Público que calzan con tu perfil AIDU</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     try:
         from app.core.descarga_diaria import listar_vigentes, ejecutar_descarga, stats_vigentes
@@ -1137,8 +1495,12 @@ if tab_hoy:
 # TAB: ⚙️ CONFIGURACIÓN (v7 — eliminar hardcoded)
 # ============================================================
 if tab_config:
-    st.markdown("## ⚙️ Configuración de AIDU Op")
-    st.caption("Personaliza tarifas, sweet spot, regiones y todo lo que antes estaba hardcoded")
+    st.markdown("""
+    <div class="aidu-hero">
+        <h1 style="margin:0; font-size:28px;">⚙️ Configuración</h1>
+        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">Personaliza tarifas, sweet spot, regiones y filtros — todo lo que antes estaba hardcoded</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     try:
         from app.core.configuracion import obtener_config, actualizar_config, resetear_config
@@ -1308,7 +1670,7 @@ if tab_config:
             st.code(str(e))
 
 
-with tab_cartera:
+if tab_cartera:
     st.markdown("""
     <div class="macro-flow">
         <div class="macro-step">1. 🔍 BUSCAR</div>
@@ -1473,7 +1835,7 @@ with tab_cartera:
 # ====================
 # TAB 2: OPORTUNIDADES (rediseñado)
 # ====================
-with tab_buscar:
+if tab_buscar:
     st.subheader("🎯 Oportunidades de mercado")
     st.caption("Licitaciones del histórico MP que calzan con tu perfil AIDU. Convierte las que te interesen a tu cartera.")
 
@@ -1805,7 +2167,7 @@ with tab_buscar:
 # ====================
 # TAB 3: INTELIGENCIA
 # ====================
-with tab_intel:
+if tab_intel:
     st.subheader("📊 Inteligencia de mercado por categoría AIDU")
 
     conn = get_connection()
@@ -1858,7 +2220,7 @@ with tab_intel:
 # ====================
 # TAB 4: SISTEMA
 # ====================
-with tab_sistema:
+if tab_sistema:
     st.subheader("⚙️ Estado del sistema")
 
     estado = estado_actual()
