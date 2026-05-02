@@ -1337,7 +1337,7 @@ with st.sidebar:
     
     seccion = st.radio(
         "Navegación",
-        ["🔥 Hoy", "📂 Cartera", "🎯 Oportunidades", "📊 Inteligencia", "⚙️ Configuración", "🛠️ Sistema"],
+        ["🔥 Hoy", "📂 Cartera", "🎯 Oportunidades", "🤖 Análisis IA", "📊 Inteligencia", "⚙️ Configuración", "🛠️ Sistema"],
         label_visibility="collapsed",
         key="nav_principal",
     )
@@ -1388,6 +1388,7 @@ tab_intel = (seccion == "📊 Inteligencia")
 tab_sistema = (seccion == "🛠️ Sistema")
 tab_hoy = (seccion == "🔥 Hoy")
 tab_config = (seccion == "⚙️ Configuración")
+tab_ia = (seccion == "🤖 Análisis IA")
 
 
 # ====================
@@ -1494,6 +1495,234 @@ if tab_hoy:
 # ============================================================
 # TAB: ⚙️ CONFIGURACIÓN (v7 — eliminar hardcoded)
 # ============================================================
+# ============================================================
+# TAB: 🤖 ANÁLISIS IA (v8 — análisis de bases técnicas con Claude)
+# ============================================================
+if tab_ia:
+    st.markdown("""
+    <div class="aidu-hero">
+        <h1 style="margin:0; font-size:28px;">🤖 Análisis IA de Bases Técnicas</h1>
+        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">Sube un PDF de bases y Claude extrae requisitos, plazos, riesgos y te da una recomendación</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    try:
+        from app.core.analisis_bases import analizar_pdf_bases, obtener_ultimo_analisis
+        
+        col_up1, col_up2 = st.columns([3, 1])
+        
+        with col_up1:
+            codigo_lic = st.text_input(
+                "Código de licitación",
+                placeholder="Ej: 2641-156-L125",
+                help="Identificador de Mercado Público para guardar el análisis"
+            )
+            
+            archivo = st.file_uploader(
+                "📄 Sube el PDF de las bases técnicas",
+                type=["pdf"],
+                help="PDF con texto (no escaneado). Máx 80k caracteres"
+            )
+        
+        with col_up2:
+            st.markdown("##### 💰 Costo estimado")
+            st.markdown("""
+            <div style='padding:12px; background:#F8FAFC; border-radius:8px; border:1px solid #E2E8F0;'>
+                <div style='font-size:11px; color:#64748B;'>Por análisis típico</div>
+                <div style='font-size:22px; font-weight:700; color:#1E40AF;'>~$0.05 USD</div>
+                <div style='font-size:11px; color:#64748B;'>~30 segundos</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        if archivo and codigo_lic:
+            # Verificar si ya hay análisis previo
+            previo = obtener_ultimo_analisis(codigo_lic)
+            
+            if previo:
+                st.info(f"📦 Hay un análisis previo del {previo['fecha_analisis']}. Costo previo: ${previo['costo_usd']:.4f} USD")
+                col_b1, col_b2 = st.columns(2)
+                ver_previo = col_b1.button("👁️ Ver análisis previo", use_container_width=True)
+                reanalizar = col_b2.button("🔄 Re-analizar (gastar tokens)", use_container_width=True, type="primary")
+            else:
+                ver_previo = False
+                reanalizar = st.button("🚀 Analizar con Claude", use_container_width=True, type="primary")
+            
+            if ver_previo and previo:
+                st.session_state["ia_resultado_actual"] = previo["resultado"]
+                st.session_state["ia_meta"] = {"from_cache": True, "fecha": previo["fecha_analisis"]}
+            
+            if reanalizar:
+                with st.spinner("🤖 Claude está leyendo las bases técnicas..."):
+                    pdf_bytes = archivo.read()
+                    resultado = analizar_pdf_bases(
+                        pdf_bytes,
+                        codigo_licitacion=codigo_lic,
+                        forzar_reanalisis=(previo is not None)
+                    )
+                
+                if resultado["ok"]:
+                    st.session_state["ia_resultado_actual"] = resultado["resultado"]
+                    st.session_state["ia_meta"] = resultado["meta"]
+                    st.success(f"✅ Análisis completado · Costo: ${resultado['meta'].get('costo_usd', 0):.4f} USD · {resultado['meta'].get('tokens_input', 0):,} tokens in / {resultado['meta'].get('tokens_output', 0):,} out")
+                else:
+                    st.error(f"❌ Error: {resultado.get('error', 'Desconocido')}")
+        
+        # Mostrar resultado si existe
+        if "ia_resultado_actual" in st.session_state:
+            r = st.session_state["ia_resultado_actual"]
+            
+            st.divider()
+            
+            # === RECOMENDACIÓN PRINCIPAL ===
+            rec = r.get("recomendacion", {})
+            postular = rec.get("postular", "incierto")
+            confianza = rec.get("confianza", 0)
+            
+            color_rec = "#15803D" if postular == "si" else "#DC2626" if postular == "no" else "#D97706"
+            label_rec = "✅ POSTULAR" if postular == "si" else "❌ NO POSTULAR" if postular == "no" else "⚠️ CON RESERVAS"
+            
+            st.markdown(f"""
+            <div style='padding:24px; background:linear-gradient(135deg, {color_rec}15 0%, white 60%); border-left:5px solid {color_rec}; border-radius:12px; margin-bottom:24px;'>
+                <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;'>
+                    <div style='font-size:24px; font-weight:800; color:{color_rec};'>{label_rec}</div>
+                    <div style='text-align:right;'>
+                        <div style='font-size:11px; color:#64748B;'>Confianza Claude</div>
+                        <div style='font-size:28px; font-weight:800; color:{color_rec};'>{confianza}%</div>
+                    </div>
+                </div>
+                <div style='font-size:14px; color:#334155; line-height:1.6;'>{r.get('resumen_ejecutivo', '')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # === RAZONES ===
+            razones = rec.get("razones_principales", [])
+            if razones:
+                st.markdown("##### 🎯 Razones principales")
+                for i, razon in enumerate(razones, 1):
+                    st.markdown(f"""
+                    <div style='padding:10px 14px; background:#F8FAFC; border-left:3px solid {color_rec}; border-radius:6px; margin-bottom:6px;'>
+                        <strong>{i}.</strong> {razon}
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # === DATOS CLAVE ===
+            col_d1, col_d2, col_d3 = st.columns(3)
+            
+            monto_ref = r.get("monto_referencial_clp")
+            if monto_ref:
+                col_d1.metric("Monto referencial", formato_clp(monto_ref))
+            
+            plazo = r.get("plazo_ejecucion_dias")
+            if plazo:
+                col_d2.metric("Plazo ejecución", f"{plazo} días")
+            
+            comp = r.get("estimacion_competencia", {})
+            nivel = comp.get("nivel_esperado", "—")
+            col_d3.metric("Competencia esperada", nivel.upper())
+            
+            # === REQUISITOS ELIMINATORIOS ===
+            requisitos = r.get("requisitos_eliminatorios", [])
+            if requisitos:
+                st.markdown("##### 📋 Requisitos eliminatorios")
+                for req in requisitos:
+                    puede = req.get("puede_cumplir", "incierto")
+                    icon = "✅" if puede == "si" else "❌" if puede == "no" else "⚠️"
+                    color_req = "#15803D" if puede == "si" else "#DC2626" if puede == "no" else "#D97706"
+                    st.markdown(f"""
+                    <div style='padding:10px 14px; background:white; border:1px solid #E2E8F0; border-left:3px solid {color_req}; border-radius:6px; margin-bottom:6px;'>
+                        <div style='display:flex; justify-content:space-between;'>
+                            <span><strong>{icon} {req.get('requisito', '—')}</strong></span>
+                            <span style='font-size:11px; color:{color_req}; font-weight:600;'>{puede.upper()}</span>
+                        </div>
+                        <div style='font-size:12px; color:#64748B; margin-top:4px;'>{req.get('comentario', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # === PLAZOS CRÍTICOS ===
+            plazos = r.get("plazos_criticos", [])
+            if plazos:
+                st.markdown("##### ⏰ Plazos críticos")
+                for p in plazos:
+                    crit = p.get("criticidad", "media")
+                    color_p = "#DC2626" if crit == "alta" else "#D97706" if crit == "media" else "#15803D"
+                    st.markdown(f"""
+                    <div style='padding:8px 14px; background:#F8FAFC; border-left:3px solid {color_p}; border-radius:6px; margin-bottom:4px;'>
+                        <strong>{p.get('hito', '—')}</strong> · {p.get('fecha_o_dias', '—')} · <span style='color:{color_p}; font-weight:600;'>{crit.upper()}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # === GARANTÍAS ===
+            garantias = r.get("garantias_exigidas", [])
+            if garantias:
+                st.markdown("##### 💰 Garantías exigidas")
+                cols_g = st.columns(min(len(garantias), 3))
+                for i, g in enumerate(garantias):
+                    cols_g[i % 3].markdown(f"""
+                    <div style='padding:14px; background:white; border:1px solid #E2E8F0; border-radius:8px; text-align:center;'>
+                        <div style='font-size:11px; color:#64748B; text-transform:uppercase;'>{g.get('tipo', '—')}</div>
+                        <div style='font-size:18px; font-weight:700; color:#1E40AF;'>{g.get('monto_uf_o_pct', '—')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # === CRITERIOS EVALUACIÓN ===
+            criterios = r.get("criterios_evaluacion", [])
+            if criterios:
+                st.markdown("##### 📊 Criterios de evaluación")
+                for c in criterios:
+                    pond = c.get("ponderacion_pct", 0)
+                    st.markdown(f"""
+                    <div style='padding:10px 14px; background:white; border:1px solid #E2E8F0; border-radius:6px; margin-bottom:4px;'>
+                        <div style='display:flex; justify-content:space-between;'>
+                            <span><strong>{c.get('criterio', '—')}</strong></span>
+                            <span style='font-weight:700; color:#1E40AF;'>{pond}%</span>
+                        </div>
+                        <div style='height:4px; background:#F1F5F9; border-radius:2px; margin-top:6px; overflow:hidden;'>
+                            <div style='height:100%; width:{pond}%; background:#1E40AF; border-radius:2px;'></div>
+                        </div>
+                        <div style='font-size:11px; color:#64748B; margin-top:4px;'>{c.get('comentario', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # === CLÁUSULAS PROBLEMÁTICAS ===
+            clausulas = r.get("clausulas_problematicas", [])
+            if clausulas:
+                st.markdown("##### 🚨 Cláusulas problemáticas detectadas")
+                for cl in clausulas:
+                    riesgo = cl.get("riesgo", "medio")
+                    color_r = "#DC2626" if riesgo == "alto" else "#D97706" if riesgo == "medio" else "#94A3B8"
+                    st.markdown(f"""
+                    <div style='padding:12px 14px; background:#FEF2F2; border-left:3px solid {color_r}; border-radius:6px; margin-bottom:6px;'>
+                        <div style='font-size:13px; font-weight:600; color:#0F172A;'>⚠️ {cl.get('clausula', '—')}</div>
+                        <div style='font-size:12px; color:#64748B; margin-top:4px;'>{cl.get('razon', '')}</div>
+                        <div style='font-size:10px; color:{color_r}; font-weight:600; margin-top:4px;'>RIESGO: {riesgo.upper()}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # === ALERTAS LEGALES ===
+            alertas = r.get("alertas_legales", [])
+            if alertas:
+                st.markdown("##### ⚖️ Alertas legales")
+                for a in alertas:
+                    st.warning(a)
+            
+            # === ACCIONES PREVIAS ===
+            acciones = rec.get("acciones_previas_necesarias", [])
+            if acciones:
+                st.markdown("##### 📝 Acciones previas necesarias")
+                for a in acciones:
+                    st.info(f"☐ {a}")
+            
+            # JSON descargable
+            with st.expander("🔍 Ver JSON completo del análisis"):
+                st.json(r)
+    
+    except Exception as e:
+        st.error(f"Error en módulo de análisis IA: {e}")
+        with st.expander("Detalle"):
+            import traceback
+            st.code(traceback.format_exc())
+
+
 if tab_config:
     st.markdown("""
     <div class="aidu-hero">
@@ -2168,53 +2397,307 @@ if tab_buscar:
 # TAB 3: INTELIGENCIA
 # ====================
 if tab_intel:
-    st.subheader("📊 Inteligencia de mercado por categoría AIDU")
+    st.markdown("""
+    <div class="aidu-hero">
+        <h1 style="margin:0; font-size:28px;">📊 Inteligencia de Mercado</h1>
+        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">Dashboard ejecutivo · análisis por categoría · estudio de mandantes · competencia recurrente</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Sub-pestañas internas
+    intel_t1, intel_t2, intel_t3, intel_t4 = st.tabs([
+        "📈 Dashboard ejecutivo",
+        "🎯 Por categoría",
+        "🏛️ Análisis de mandante",
+        "🥇 Competencia"
+    ])
+    
+    # ============ SUB-TAB 1: DASHBOARD EJECUTIVO ============
+    with intel_t1:
+        try:
+            from app.core.inteligencia_avanzada import forecast_pipeline_90d, tasa_exito_por_dimension
+            
+            forecast = forecast_pipeline_90d()
+            win_rate = tasa_exito_por_dimension()
+            
+            st.markdown("##### 💰 Pipeline 90 días")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric(
+                "Pipeline total",
+                formato_clp(forecast["valor_pipeline_total_clp"]),
+                help="Suma de montos de todos los proyectos activos"
+            )
+            col2.metric(
+                "Valor esperado",
+                formato_clp(forecast["valor_esperado_clp"]),
+                help="Valor ponderado por probabilidad de adjudicación"
+            )
+            col3.metric(
+                "Ingresos proyectados",
+                formato_clp(forecast["ingresos_esperados_clp"]),
+                help=f"Aplicando margen objetivo {forecast['margen_aplicado_pct']:.0f}%"
+            )
+            col4.metric(
+                "Proyectos activos",
+                forecast["n_proyectos_activos"]
+            )
+            
+            st.markdown("##### 📊 Pipeline por etapa")
+            
+            if forecast["por_etapa"]:
+                for etapa in forecast["por_etapa"]:
+                    barra_pct = etapa["probabilidad_pct"]
+                    color = "#15803D" if barra_pct >= 50 else "#D97706" if barra_pct >= 25 else "#DC2626"
+                    
+                    st.markdown(f"""
+                    <div style='padding:14px 18px; background:white; border:1px solid #E2E8F0; border-radius:10px; margin-bottom:8px; box-shadow:0 1px 2px rgba(0,0,0,0.04);'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                            <div>
+                                <span class='estado-{etapa["etapa"]}'>{etapa["etapa"]}</span>
+                                <span style='margin-left:12px; color:#64748B; font-size:13px;'>{etapa["n_proyectos"]} proyectos · {formato_clp(etapa["valor_total_clp"])}</span>
+                            </div>
+                            <div style='font-weight:700; color:{color}; font-size:15px;'>
+                                {formato_clp(etapa["valor_esperado_clp"])} esperado
+                            </div>
+                        </div>
+                        <div style='height:6px; background:#F1F5F9; border-radius:3px; overflow:hidden;'>
+                            <div style='height:100%; width:{barra_pct}%; background:{color}; border-radius:3px;'></div>
+                        </div>
+                        <div style='font-size:11px; color:#94A3B8; margin-top:4px;'>Probabilidad estimada de adjudicación: {barra_pct:.0f}%</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            st.markdown("##### 🏆 Win Rate")
+            
+            col_w1, col_w2, col_w3 = st.columns(3)
+            col_w1.metric(
+                "Win rate global",
+                f"{win_rate['win_rate_global_pct']:.1f}%",
+                f"{win_rate['total_adjudicadas']}/{win_rate['total_postuladas']} postulaciones"
+            )
+            col_w2.metric("Adjudicadas", win_rate["total_adjudicadas"])
+            col_w3.metric("Total postuladas", win_rate["total_postuladas"])
+            
+            if win_rate["por_categoria"]:
+                st.markdown("###### 📁 Por categoría AIDU")
+                for cat in win_rate["por_categoria"][:5]:
+                    color = "#15803D" if cat["win_rate_pct"] >= 30 else "#D97706" if cat["win_rate_pct"] >= 15 else "#DC2626"
+                    st.markdown(f"""
+                    <div style='display:flex; justify-content:space-between; padding:8px 14px; background:#F8FAFC; border-radius:6px; margin-bottom:4px;'>
+                        <span><strong>{cat['categoria']}</strong> · {cat['ganadas']}/{cat['postuladas']}</span>
+                        <strong style='color:{color};'>{cat['win_rate_pct']:.1f}%</strong>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            if win_rate["por_mandante"]:
+                st.markdown("###### 🏛️ Top 5 mandantes")
+                for m in win_rate["por_mandante"][:5]:
+                    color = "#15803D" if m["win_rate_pct"] >= 30 else "#D97706" if m["win_rate_pct"] >= 15 else "#DC2626"
+                    st.markdown(f"""
+                    <div style='display:flex; justify-content:space-between; padding:8px 14px; background:#F8FAFC; border-radius:6px; margin-bottom:4px;'>
+                        <span><strong>{m['mandante']}</strong> · {m['ganadas']}/{m['postuladas']}</span>
+                        <strong style='color:{color};'>{m['win_rate_pct']:.1f}%</strong>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            st.markdown("##### 🌟 Top 5 oportunidades por valor esperado")
+            
+            for op in forecast["top_oportunidades"][:5]:
+                st.markdown(f"""
+                <div class='aidu-card'>
+                    <div style='display:flex; justify-content:space-between; align-items:start;'>
+                        <div style='flex:1;'>
+                            <div class='aidu-card-title'>{op['nombre']}</div>
+                            <div class='aidu-card-meta'>
+                                🏛️ {op.get('organismo', '—')} · 
+                                <span class='estado-{op['estado']}'>{op['estado']}</span>
+                            </div>
+                        </div>
+                        <div style='text-align:right;'>
+                            <div style='font-size:11px; color:#94A3B8;'>Valor esperado</div>
+                            <div style='font-size:18px; font-weight:700; color:#1E40AF;'>{formato_clp(op['valor_esperado'])}</div>
+                            <div style='font-size:11px; color:#64748B;'>Prob: {op['prob']*100:.0f}%</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+        except Exception as e:
+            st.warning("⚠️ Dashboard requiere datos en cartera. Carga datos demo en Sistema o agrega proyectos.")
+            with st.expander("Detalle"):
+                st.code(str(e))
+    
+    # ============ SUB-TAB 2: POR CATEGORÍA ============
+    with intel_t2:
+        st.markdown("##### 🎯 Análisis estadístico por categoría AIDU")
+        
+        conn = get_connection()
+        servicios = conn.execute("""
+            SELECT s.cod_servicio, s.nombre, COUNT(c.codigo_externo) as n
+            FROM aidu_servicios_keywords s
+            LEFT JOIN mp_categorizacion_aidu c ON c.cod_servicio_aidu = s.cod_servicio
+            GROUP BY s.cod_servicio
+            ORDER BY n DESC
+        """).fetchall()
+        conn.close()
 
-    conn = get_connection()
-    servicios = conn.execute("""
-        SELECT s.cod_servicio, s.nombre, COUNT(c.codigo_externo) as n
-        FROM aidu_servicios_keywords s
-        LEFT JOIN mp_categorizacion_aidu c ON c.cod_servicio_aidu = s.cod_servicio
-        GROUP BY s.cod_servicio
-        ORDER BY n DESC
-    """).fetchall()
-    conn.close()
+        cod_sel = st.selectbox(
+            "Categoría AIDU",
+            options=[s["cod_servicio"] for s in servicios],
+            format_func=lambda x: f"{x} · {next(s['nombre'] for s in servicios if s['cod_servicio']==x)} ({next(s['n'] for s in servicios if s['cod_servicio']==x)} licit.)"
+        )
 
-    cod_sel = st.selectbox(
-        "Categoría AIDU",
-        options=[s["cod_servicio"] for s in servicios],
-        format_func=lambda x: f"{x} · {next(s['nombre'] for s in servicios if s['cod_servicio']==x)} ({next(s['n'] for s in servicios if s['cod_servicio']==x)} licit.)"
-    )
-
-    if cod_sel:
-        stats = obtener_estadisticas_categoria(cod_sel)
-        if stats["n_total"]:
-            cols = st.columns(4)
-            cols[0].metric("Licitaciones", stats["n_total"])
-            cols[1].metric("Descuento P25", f"{stats['descuento_p25']:.1f}%")
-            cols[2].metric("Descuento mediana", f"{stats['descuento_mediana']:.1f}%")
-            cols[3].metric("Descuento P75", f"{stats['descuento_p75']:.1f}%")
-
-            if stats["competidores_recurrentes"]:
-                st.markdown("##### 🥇 Competidores recurrentes")
-                for c in stats["competidores_recurrentes"]:
-                    st.markdown(f"- **{c['nombre']}** · {c['n_adj']} adjudicaciones")
-
-            comparables = licitaciones_similares(cod_sel, limit=10)
-            if comparables:
-                st.markdown("##### 📚 Top 10 licitaciones")
-                for r in comparables:
-                    desc = r["descuento_pct"]
-                    desc_str = f" · Δ {desc:+.1f}%" if desc else ""
-                    st.markdown(
-                        f"<div style='padding:8px 12px;margin-bottom:6px;background:#F8FAFC;border-radius:6px;border-left:3px solid #1E40AF;'>"
-                        f"<div style='font-size:13px;font-weight:600;color:#1E40AF;'>{r['nombre']}</div>"
-                        f"<div style='font-size:11px;color:#64748B;'>🏛️ {r['organismo'] or '-'} · {formato_clp(r['monto_adjudicado'])} adjudicado{desc_str} · Match: {r['similarity']:.0f}%</div>"
-                        f"</div>",
-                        unsafe_allow_html=True
-                    )
-        else:
-            st.info(f"Sin datos para {cod_sel}.")
+        if cod_sel:
+            stats = obtener_estadisticas_categoria(cod_sel)
+            if stats["n_total"]:
+                cols = st.columns(4)
+                cols[0].metric("Licitaciones", stats["n_total"])
+                cols[1].metric("Descuento P25", f"{stats['descuento_p25']:.1f}%")
+                cols[2].metric("Descuento mediana", f"{stats['descuento_mediana']:.1f}%")
+                cols[3].metric("Descuento P75", f"{stats['descuento_p75']:.1f}%")
+                
+                comparables = licitaciones_similares(cod_sel, limit=10)
+                if comparables:
+                    st.markdown("##### 📚 Top 10 licitaciones")
+                    for r in comparables:
+                        desc = r.get("descuento_pct")
+                        desc_str = f" · Δ {desc:+.1f}%" if desc else ""
+                        st.markdown(
+                            f"<div class='aidu-card' style='padding:12px 16px; margin-bottom:6px; border-left:3px solid #1E40AF;'>"
+                            f"<div class='aidu-card-title'>{r['nombre']}</div>"
+                            f"<div class='aidu-card-meta'>🏛️ {r.get('organismo') or '—'} · {formato_clp(r['monto_adjudicado'])} adjudicado{desc_str} · Match: {r['similarity']:.0f}%</div>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+            else:
+                st.info(f"Sin datos para {cod_sel}.")
+    
+    # ============ SUB-TAB 3: ANÁLISIS DE MANDANTE ============
+    with intel_t3:
+        st.markdown("##### 🏛️ Análisis 360 de un mandante")
+        st.caption("Conoce a fondo cómo licita un organismo específico antes de postular")
+        
+        try:
+            from app.core.inteligencia_avanzada import analizar_mandante
+            
+            conn = get_connection()
+            mandantes = conn.execute("""
+                SELECT organismo, COUNT(*) as n
+                FROM mp_licitaciones_adj
+                WHERE organismo IS NOT NULL
+                GROUP BY organismo
+                ORDER BY n DESC LIMIT 100
+            """).fetchall()
+            conn.close()
+            
+            if mandantes:
+                organismo_sel = st.selectbox(
+                    "Mandante a analizar",
+                    options=[m["organismo"] for m in mandantes],
+                    format_func=lambda x: f"{x} ({next(m['n'] for m in mandantes if m['organismo']==x)} licit.)"
+                )
+                
+                if organismo_sel:
+                    analisis = analizar_mandante(organismo_sel)
+                    
+                    if analisis["encontrado"]:
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Total licitaciones", analisis["total_licitaciones"])
+                        c2.metric("Monto promedio", formato_clp(analisis["monto_promedio_clp"]))
+                        c3.metric("Monto máximo", formato_clp(analisis["monto_max_clp"]))
+                        c4.metric("Descuento promedio", f"{analisis['descuento_promedio_pct']:.1f}%")
+                        
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            st.markdown("###### 📁 Categorías frecuentes")
+                            for cat in analisis["categorias_frecuentes"]:
+                                st.markdown(f"""
+                                <div style='padding:8px 14px; background:#F8FAFC; border-radius:6px; margin-bottom:4px; display:flex; justify-content:space-between;'>
+                                    <strong>{cat['categoria']}</strong>
+                                    <span style='color:#64748B;'>{cat['n']} proyectos</span>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        with col_b:
+                            st.markdown("###### 🥇 Proveedores recurrentes")
+                            for prov in analisis["proveedores_recurrentes"]:
+                                st.markdown(f"""
+                                <div style='padding:8px 14px; background:#F8FAFC; border-radius:6px; margin-bottom:4px;'>
+                                    <div style='font-size:13px; font-weight:600;'>{prov['nombre']}</div>
+                                    <div style='font-size:11px; color:#64748B;'>{prov['n']} adj. · {formato_clp(prov['total_clp'])} total</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+        except Exception as e:
+            st.warning("⚠️ Análisis de mandante no disponible.")
+            with st.expander("Detalle"):
+                st.code(str(e))
+    
+    # ============ SUB-TAB 4: COMPETENCIA ============
+    with intel_t4:
+        st.markdown("##### 🥇 Detección de competencia recurrente")
+        st.caption("Identifica quiénes ganan más en tu nicho competitivo")
+        
+        try:
+            from app.core.inteligencia_avanzada import detectar_competencia_recurrente
+            
+            col_f1, col_f2 = st.columns(2)
+            
+            cat_filtro = col_f1.selectbox(
+                "Filtrar por categoría",
+                ["Todas"] + [s["cod_servicio"] for s in servicios],
+                key="comp_cat"
+            )
+            
+            region_filtro = col_f2.selectbox(
+                "Filtrar por región",
+                ["Todas", "O'Higgins", "Metropolitana", "Maule", "Valparaíso"],
+                key="comp_reg"
+            )
+            
+            comp = detectar_competencia_recurrente(
+                cod_servicio_aidu=cat_filtro if cat_filtro != "Todas" else None,
+                region=region_filtro if region_filtro != "Todas" else None,
+                top_n=15
+            )
+            
+            if comp["competidores"]:
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Competidores únicos", len(comp["competidores"]))
+                col_m2.metric(
+                    "Concentración top 3",
+                    f"{comp['concentracion_top3_pct']:.1f}%",
+                    "Mercado fragmentado" if comp["competencia_fragmentada"] else "Mercado concentrado"
+                )
+                col_m3.metric("Total proyectos", comp["total_proyectos_analizados"])
+                
+                st.markdown("###### 📋 Top 15 competidores")
+                
+                for i, c in enumerate(comp["competidores"], 1):
+                    st.markdown(f"""
+                    <div class='aidu-card'>
+                        <div style='display:flex; justify-content:space-between; align-items:center;'>
+                            <div style='flex:1;'>
+                                <div class='aidu-card-title'>#{i} {c['nombre']}</div>
+                                <div class='aidu-card-meta'>{c['n_adjudicaciones']} adjudicaciones · descuento promedio {c['descuento_promedio_pct']:.1f}%</div>
+                            </div>
+                            <div style='text-align:right;'>
+                                <div style='font-size:11px; color:#94A3B8;'>Win rate</div>
+                                <div style='font-size:18px; font-weight:700; color:#1E40AF;'>{c['win_rate_pct']:.1f}%</div>
+                                <div style='font-size:11px; color:#64748B;'>{formato_clp(c['monto_total_clp'])}</div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sin competidores con estos filtros")
+        except Exception as e:
+            st.warning("⚠️ Análisis de competencia no disponible.")
+            with st.expander("Detalle"):
+                st.code(str(e))
 
 
 # ====================
