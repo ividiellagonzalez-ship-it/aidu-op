@@ -292,11 +292,11 @@ div[data-testid="stMetric"]:hover {
     letter-spacing: 0.4px;
     text-transform: uppercase;
 }
-.estado-PROSPECTO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-.estado-ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-.estado-EN_PREPARACION { background: #DBEAFE; color: #1E40AF; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-.estado-LISTO_OFERTAR { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-.estado-OFERTADO { background: #E9D5FF; color: #6B21A8; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-EN_CARTERA { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-EN_ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-EN_ESTUDIO { background: #DBEAFE; color: #1E40AF; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-EN_OFERTA { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-LISTO_SUBIR { background: #E9D5FF; color: #6B21A8; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 .estado-ADJUDICADO { background: #BBF7D0; color: #14532D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 .estado-PERDIDO { background: #FEE2E2; color: #7F1D1D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
 .estado-DESCARTADO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
@@ -711,10 +711,10 @@ div[data-testid="stMetricDelta"] {
     letter-spacing: 0.4px;
     text-transform: uppercase;
 }
-.estado-PROSPECTO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-.estado-ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-.estado-EN_PREPARACION { background: #DBEAFE; color: #1E40AF; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-.estado-LISTO_OFERTAR { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-EN_CARTERA { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-EN_ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-EN_ESTUDIO { background: #DBEAFE; color: #1E40AF; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.estado-EN_OFERTA { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .estado-OFERTADA { background: #E9D5FF; color: #6B21A8; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .estado-ADJUDICADA { background: #BBF7D0; color: #14532D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 
@@ -1025,11 +1025,11 @@ def render_detalle_proyecto(proyecto_id: int):
     
     # Color del estado
     color_estado_map = {
-        "PROSPECTO": ("#64748B", "#F1F5F9"),
-        "ESTUDIO": ("#0E7490", "#CFFAFE"),
-        "EN_PREPARACION": ("#1E40AF", "#DBEAFE"),
-        "LISTO_OFERTAR": ("#9A3412", "#FED7AA"),
-        "OFERTADO": ("#6B21A8", "#E9D5FF"),
+        "EN_CARTERA": ("#64748B", "#F1F5F9"),
+        "EN_ESTUDIO": ("#0E7490", "#CFFAFE"),
+        "EN_ESTUDIO": ("#1E40AF", "#DBEAFE"),
+        "EN_OFERTA": ("#9A3412", "#FED7AA"),
+        "LISTO_SUBIR": ("#6B21A8", "#E9D5FF"),
         "ADJUDICADO": ("#14532D", "#BBF7D0"),
         "PERDIDO": ("#7F1D1D", "#FEE2E2"),
         "DESCARTADO": ("#475569", "#F1F5F9"),
@@ -1083,13 +1083,12 @@ def render_detalle_proyecto(proyecto_id: int):
     </div>
     """, unsafe_allow_html=True)
     
-    # ===== ACCIONES DE ESTADO (cambio rápido entre fases) =====
+    # ===== ACCIONES DE ESTADO (cambio rápido entre fases del embudo) =====
     flow_estados = [
-        ("PROSPECTO", "📂 Cartera"),
-        ("ESTUDIO", "🔬 Estudio"),
-        ("EN_PREPARACION", "🛠️ Preparación"),
-        ("LISTO_OFERTAR", "📝 Ofertar"),
-        ("OFERTADO", "📤 Subido a MP"),
+        ("EN_CARTERA",  "📂 Cartera"),
+        ("EN_ESTUDIO",  "🔬 Estudio"),
+        ("EN_OFERTA",   "📝 Ofertar"),
+        ("LISTO_SUBIR", "📤 Subir a MP"),
     ]
     
     estado_idx = next((i for i, (e, _) in enumerate(flow_estados) if e == p["estado"]), -1)
@@ -1137,7 +1136,7 @@ def render_detalle_proyecto(proyecto_id: int):
             st.markdown(f"""
             <div style='background:white; padding:16px 20px; border:1px solid #E2E8F0; border-radius:10px;'>
                 <table style='width:100%; font-size:13px;'>
-                    <tr><td style='color:#64748B; padding:6px 0;'>Código MP</td><td style='font-family:JetBrains Mono,monospace; font-weight:600;'>{p["codigo_externo"]}</td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0; width:40%;'>Código MP</td><td style='font-family:JetBrains Mono,monospace; font-weight:600;'>{p["codigo_externo"]}</td></tr>
                     <tr><td style='color:#64748B; padding:6px 0;'>Mandante</td><td style='font-weight:500;'>{p.get("organismo") or "—"}</td></tr>
                     <tr><td style='color:#64748B; padding:6px 0;'>Región</td><td>{p.get("region") or "—"}</td></tr>
                     <tr><td style='color:#64748B; padding:6px 0;'>Categoría AIDU</td><td>{p.get("cod_servicio_aidu") or "—"}</td></tr>
@@ -1155,6 +1154,41 @@ def render_detalle_proyecto(proyecto_id: int):
             if p.get("notas"):
                 st.markdown("##### 🗒️ Notas")
                 st.markdown(f"<div style='background:#FEF3C7; padding:14px 18px; border-radius:8px; font-size:13px; color:#78350F; line-height:1.6; white-space:pre-wrap;'>{p['notas']}</div>", unsafe_allow_html=True)
+            
+            # ===== INTELIGENCIA DEL MANDANTE =====
+            try:
+                from app.core.inteligencia_avanzada import analizar_mandante
+                
+                if p.get("organismo"):
+                    mand = analizar_mandante(p["organismo"])
+                    
+                    if mand and mand.get("n_licitaciones", 0) > 0:
+                        st.markdown("##### 🏛️ Inteligencia del mandante")
+                        st.markdown(f"""
+                        <div style='background:white; padding:16px 20px; border:1px solid #E2E8F0; border-radius:10px;'>
+                            <div style='font-size:13px; color:#0F172A; font-weight:600; margin-bottom:10px;'>{p["organismo"]}</div>
+                            <div style='display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; font-size:12px;'>
+                                <div>
+                                    <div style='color:#64748B;'>Licitaciones publicadas</div>
+                                    <div style='font-size:18px; font-weight:700; color:#1E40AF;'>{mand.get("n_licitaciones", 0)}</div>
+                                </div>
+                                <div>
+                                    <div style='color:#64748B;'>Adjudicadas</div>
+                                    <div style='font-size:18px; font-weight:700; color:#15803D;'>{mand.get("n_adjudicadas", 0)}</div>
+                                </div>
+                                <div>
+                                    <div style='color:#64748B;'>Ticket promedio</div>
+                                    <div style='font-size:14px; font-weight:600; color:#0F172A;'>{formato_clp(mand.get("ticket_promedio", 0))}</div>
+                                </div>
+                                <div>
+                                    <div style='color:#64748B;'>Descuento promedio</div>
+                                    <div style='font-size:14px; font-weight:600; color:#0F172A;'>{mand.get("descuento_promedio_pct", 0):.1f}%</div>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            except Exception:
+                pass
         
         with col2:
             st.markdown("##### 💰 Resumen económico")
@@ -1198,7 +1232,7 @@ def render_detalle_proyecto(proyecto_id: int):
             </div>
             """, unsafe_allow_html=True)
             
-            # Predicción descuento rápida
+            # Predicción descuento
             try:
                 from app.core.inteligencia_avanzada import predecir_descuento_optimo
                 pred = predecir_descuento_optimo(
@@ -1219,6 +1253,16 @@ def render_detalle_proyecto(proyecto_id: int):
                 """, unsafe_allow_html=True)
             except Exception:
                 pass
+            
+            # ===== LINK DIRECTO MP =====
+            st.markdown(f"""
+            <div style='background:linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%); padding:14px 16px; border-radius:10px; margin-top:12px; text-align:center;'>
+                <div style='font-size:11px; color:#DBEAFE; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;'>📡 Mercado Público</div>
+                <a href='{url_mp}' target='_blank' style='display:block; padding:10px; background:white; color:#1E40AF; border-radius:8px; text-decoration:none; font-weight:700; font-size:13px; margin-top:8px;'>
+                    🌐 Abrir licitación en MP →
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
     
     # ============ TAB 2: ANÁLISIS IA ============
     with t_ia:
@@ -1290,7 +1334,7 @@ def render_detalle_proyecto(proyecto_id: int):
                 with col_r2:
                     if st.button("📊 Ver análisis completo", use_container_width=True):
                         st.session_state["ia_proyecto_pre"] = p["codigo_externo"]
-                        st.session_state["nav_principal"] = "🤖 Análisis IA"
+                        st.query_params["nav"] = "ia"
                         st.session_state.view_proyecto_id = None
                         st.rerun()
             
@@ -1795,26 +1839,52 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
+    # Navegación basada en query params (permite acciones rápidas funcionales)
+    NAV_OPCIONES = [
+        ("🏠 Dashboard",       "dashboard"),
+        ("─── EMBUDO ───",     None),
+        ("🔍 1. Buscar",       "buscar"),
+        ("📂 2. Cartera",      "cartera"),
+        ("🔬 3. Estudio",      "estudio"),
+        ("📝 4. Ofertar",      "ofertar"),
+        ("📤 5. Subir a MP",   "subir"),
+        ("─── INTELIGENCIA ───", None),
+        ("📊 Inteligencia",    "intel"),
+        ("🤖 Análisis IA",     "ia"),
+        ("─── ADMIN ───",      None),
+        ("⚙️ Configuración",   "config"),
+        ("🛠️ Sistema",         "sistema"),
+    ]
+    
+    # Leer query param actual (fuente de verdad)
+    nav_actual = st.query_params.get("nav", "dashboard")
+    
+    # Encontrar el label que coincide con el query param
+    label_actual = next(
+        (label for label, key in NAV_OPCIONES if key == nav_actual),
+        "🏠 Dashboard"
+    )
+    
+    # Calcular índice
+    labels_solo = [label for label, _ in NAV_OPCIONES]
+    try:
+        idx_inicial = labels_solo.index(label_actual)
+    except ValueError:
+        idx_inicial = 0
+    
     seccion = st.radio(
         "Navegación",
-        [
-            "🏠 Dashboard",
-            "─── EMBUDO ───",
-            "🔍 1. Buscar",
-            "📂 2. Cartera",
-            "🔬 3. Estudio",
-            "📝 4. Ofertar",
-            "📤 5. Subir a MP",
-            "─── INTELIGENCIA ───",
-            "📊 Inteligencia",
-            "🤖 Análisis IA",
-            "─── ADMIN ───",
-            "⚙️ Configuración",
-            "🛠️ Sistema",
-        ],
+        labels_solo,
+        index=idx_inicial,
         label_visibility="collapsed",
-        key="nav_principal",
+        key=f"nav_radio_{nav_actual}",  # Key dinámico = se reinicia con query_params
     )
+    
+    # Si el usuario cambió la selección con el radio, actualizar query param
+    nuevo_key = next((k for label, k in NAV_OPCIONES if label == seccion and k), None)
+    if nuevo_key and nuevo_key != nav_actual:
+        st.query_params["nav"] = nuevo_key
+        st.rerun()
     
     # Saltar separadores
     if seccion.startswith("───"):
@@ -1892,52 +1962,21 @@ if tab_dashboard:
     st.markdown("""
     <div class="aidu-hero">
         <h1 style="margin:0; font-size:32px;">🏠 Dashboard</h1>
-        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">Vista ejecutiva del estado actual de AIDU Op · El embudo de ventas en tiempo real</p>
+        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">Estado del embudo · Oportunidades del día · Pipeline financiero</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Stats rápidas del día
-    try:
-        from app.core.descarga_diaria import stats_vigentes, ejecutar_descarga, listar_vigentes
-        st_vig = stats_vigentes()
-        
-        st.markdown("##### 📡 Hoy en Mercado Público")
-        
-        col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns(5)
-        col_h1.metric("📡 Vigentes total", st_vig["total_vigentes"])
-        col_h2.metric("🟢 Publicadas 24h", st_vig["publicadas_24h"])
-        col_h3.metric("🔴 Cierran ≤3d", st_vig["cierran_proximos_3_dias"])
-        col_h4.metric("🎯 Match AIDU", st_vig["con_match_aidu"])
-        
-        with col_h5:
-            st.caption("&nbsp;")
-            if st.button("🔄 Sincronizar MP", use_container_width=True, key="sync_dashboard"):
-                with st.spinner("Descargando licitaciones nuevas..."):
-                    try:
-                        res = ejecutar_descarga(dias_atras=3)
-                        st.success(f"✅ {res['nuevas']} nuevas, {res['categorizadas_aidu']} con match AIDU")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-    except Exception as e:
-        st.info("Configura el ticket de Mercado Público en Sistema para activar la sincronización automática.")
-    
-    st.divider()
-    
-    # ====== EMBUDO VISUAL ======
-    st.markdown("##### 🚀 Tu embudo comercial")
-    
+    # ================== SECCIÓN 1: EMBUDO COMERCIAL ==================
     conn = get_connection()
     try:
         embudo_counts = {}
-        for estado in ["PROSPECTO", "ESTUDIO", "EN_PREPARACION", "LISTO_OFERTAR", "OFERTADO"]:
+        for estado in ["EN_CARTERA", "EN_ESTUDIO", "EN_OFERTA", "LISTO_SUBIR"]:
             row = conn.execute(
                 "SELECT COUNT(*) as n, SUM(monto_referencial) as monto FROM aidu_proyectos WHERE estado = ?",
                 (estado,)
             ).fetchone()
             embudo_counts[estado] = {"n": row["n"] or 0, "monto": row["monto"] or 0}
         
-        # Total
         adj_row = conn.execute(
             "SELECT COUNT(*) as n, SUM(monto_referencial) as monto FROM aidu_proyectos WHERE estado = 'ADJUDICADO'"
         ).fetchone()
@@ -1946,73 +1985,86 @@ if tab_dashboard:
         conn.close()
     
     embudo_def = [
-        ("PROSPECTO", "📂 2. Cartera", "Seleccionadas", "#64748B", "#F1F5F9"),
-        ("ESTUDIO", "🔬 3. Estudio", "Análisis profundo", "#0E7490", "#CFFAFE"),
-        ("EN_PREPARACION", "🔬 3. Estudio", "Preparación oferta", "#1E40AF", "#DBEAFE"),
-        ("LISTO_OFERTAR", "📝 4. Ofertar", "Lista para enviar", "#9A3412", "#FED7AA"),
-        ("OFERTADO", "📤 5. Subir a MP", "En MP", "#6B21A8", "#E9D5FF"),
+        ("EN_CARTERA",  "📂 Cartera",    "Pre-selección",        "#64748B", "#F1F5F9"),
+        ("EN_ESTUDIO",  "🔬 Estudio",    "Análisis profundo",    "#0E7490", "#CFFAFE"),
+        ("EN_OFERTA",   "📝 Ofertar",    "Confección oferta",    "#9A3412", "#FED7AA"),
+        ("LISTO_SUBIR", "📤 Subir a MP", "Carga manual",         "#6B21A8", "#E9D5FF"),
     ]
     
-    cols = st.columns(5)
+    st.markdown("##### 🚀 Embudo Comercial")
+    cols = st.columns(4)
     for i, (estado, label, sub, color, bg) in enumerate(embudo_def):
         data = embudo_counts.get(estado, {"n": 0, "monto": 0})
         cols[i].markdown(f"""
-        <div style='padding:18px 16px; background:{bg}; border-radius:12px; text-align:center; border-top:3px solid {color}; height:140px;'>
-            <div style='font-size:10px; font-weight:700; color:{color}; letter-spacing:1px; text-transform:uppercase;'>{estado}</div>
-            <div style='font-size:36px; font-weight:800; color:{color}; line-height:1; margin:6px 0;'>{data['n']}</div>
-            <div style='font-size:11px; color:#64748B; margin-bottom:6px;'>{sub}</div>
-            <div style='font-size:13px; font-weight:600; color:#0F172A;'>{formato_clp(data['monto'])}</div>
+        <div style='padding:20px 16px; background:linear-gradient(135deg, {bg} 0%, white 100%); border-radius:14px; text-align:center; border-top:3px solid {color}; box-shadow:0 1px 3px rgba(15,23,42,0.05); height:155px; transition:all 200ms;'>
+            <div style='font-size:13px; font-weight:600; color:{color}; margin-bottom:4px;'>{label}</div>
+            <div style='font-size:42px; font-weight:800; color:{color}; line-height:1; margin:8px 0; letter-spacing:-1px;'>{data['n']}</div>
+            <div style='font-size:10px; color:#94A3B8; text-transform:uppercase; letter-spacing:0.8px; font-weight:600;'>{sub}</div>
+            <div style='font-size:13px; font-weight:700; color:#0F172A; margin-top:6px;'>{formato_clp(data['monto'])}</div>
         </div>
         """, unsafe_allow_html=True)
     
-    # Flecha entre columnas (decorativa)
-    st.caption("Flujo: Cartera → Estudio → Ofertar → Subir a MP → Adjudicado")
-    
     if adjudicadas["n"] > 0:
-        st.success(f"🎉 **{adjudicadas['n']} licitaciones adjudicadas** · Monto total: {formato_clp(adjudicadas['monto'])}")
+        st.success(f"🏆 **{adjudicadas['n']} licitaciones adjudicadas** · Total {formato_clp(adjudicadas['monto'])}")
     
     st.divider()
     
-    # ====== FORECAST + ATAJOS ======
-    col_left, col_right = st.columns([2, 1])
+    # ================== SECCIÓN 2: HOY EN MERCADO PÚBLICO ==================
+    col_mp_titulo, col_mp_btn = st.columns([3, 1])
+    col_mp_titulo.markdown("##### 📡 Hoy en Mercado Público")
     
-    with col_left:
-        st.markdown("##### 💰 Proyección 90 días")
-        try:
-            from app.core.inteligencia_avanzada import forecast_pipeline_90d
-            f = forecast_pipeline_90d()
-            
-            cm1, cm2, cm3 = st.columns(3)
-            cm1.metric("Pipeline total", formato_clp(f["valor_pipeline_total_clp"]))
-            cm2.metric("Valor esperado", formato_clp(f["valor_esperado_clp"]), help="Ponderado por probabilidad")
-            cm3.metric("Ingresos proy.", formato_clp(f["ingresos_esperados_clp"]), help=f"Aplicando margen {f['margen_aplicado_pct']:.0f}%")
-        except Exception as e:
-            st.info("Forecast disponible cuando tengas proyectos en cartera")
-    
-    with col_right:
-        st.markdown("##### ⚡ Acciones rápidas")
+    try:
+        from app.core.descarga_diaria import stats_vigentes, ejecutar_descarga, listar_vigentes
+        st_vig = stats_vigentes()
         
-        if st.button("🔍 Buscar oportunidades nuevas", use_container_width=True):
-            st.session_state["nav_principal"] = "🔍 1. Buscar"
-            st.rerun()
+        with col_mp_btn:
+            if st.button("🔄 Sincronizar MP ahora", use_container_width=True, type="primary", key="sync_dashboard"):
+                with st.spinner("Descargando licitaciones..."):
+                    try:
+                        res = ejecutar_descarga(dias_atras=3)
+                        st.success(f"✅ {res['nuevas']} nuevas · {res['categorizadas_aidu']} con match AIDU")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
         
-        if st.button("🤖 Analizar bases con IA", use_container_width=True):
-            st.session_state["nav_principal"] = "🤖 Análisis IA"
-            st.rerun()
-        
-        if st.button("📊 Ver dashboard ejecutivo", use_container_width=True):
-            st.session_state["nav_principal"] = "📊 Inteligencia"
-            st.rerun()
+        col_h1, col_h2, col_h3, col_h4 = st.columns(4)
+        col_h1.metric("📡 Vigentes total", f"{st_vig['total_vigentes']:,}")
+        col_h2.metric("🟢 Publicadas 24h", st_vig["publicadas_24h"])
+        col_h3.metric("🔴 Cierran ≤3d", st_vig["cierran_proximos_3_dias"])
+        col_h4.metric("🎯 Match AIDU", st_vig["con_match_aidu"])
+    except Exception:
+        st.info("Configura el ticket de Mercado Público en Sistema para activar la sincronización automática.")
     
     st.divider()
     
-    # ====== ÚLTIMAS VIGENTES (las 5 más recientes) ======
-    st.markdown("##### 🆕 Últimas oportunidades publicadas")
+    # ================== SECCIÓN 3: PIPELINE FINANCIERO ==================
+    st.markdown("##### 💰 Pipeline financiero · Proyección 90 días")
+    try:
+        from app.core.inteligencia_avanzada import forecast_pipeline_90d
+        f = forecast_pipeline_90d()
+        
+        cm1, cm2, cm3 = st.columns(3)
+        cm1.metric("Pipeline total", formato_clp(f["valor_pipeline_total_clp"]))
+        cm2.metric("Valor esperado", formato_clp(f["valor_esperado_clp"]), help="Ponderado por probabilidad de cierre")
+        cm3.metric("Ingresos proyectados", formato_clp(f["ingresos_esperados_clp"]), help=f"Aplicando margen {f['margen_aplicado_pct']:.0f}%")
+    except Exception:
+        st.caption("📭 Pipeline disponible cuando tengas proyectos activos.")
+    
+    st.divider()
+    
+    # ================== SECCIÓN 4: ÚLTIMAS OPORTUNIDADES ==================
+    col_ult_t, col_ult_b = st.columns([3, 1])
+    col_ult_t.markdown("##### 🆕 Últimas oportunidades publicadas")
     
     try:
         ultimas = listar_vigentes(limit=5)
+        with col_ult_b:
+            if st.button("Ver todas →", use_container_width=True, key="ver_todas_ops"):
+                st.query_params["nav"] = "buscar"
+                st.rerun()
+        
         if not ultimas:
-            st.caption("Sin licitaciones nuevas. Click '🔄 Sincronizar MP' arriba para descargar.")
+            st.caption("📭 Sin licitaciones nuevas en BD. Click '🔄 Sincronizar MP ahora' arriba.")
         else:
             for v in ultimas:
                 dias_cierre = v.get("dias_para_cierre")
@@ -2024,22 +2076,28 @@ if tab_dashboard:
                     border_color = "#15803D"
                 
                 cat_aidu = v.get("cod_servicio_aidu") or "—"
+                url_mp = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={v['codigo_externo']}"
                 
                 st.markdown(f"""
                 <div class='aidu-card' style='border-left:3px solid {border_color};'>
-                    <div style='display:flex; justify-content:space-between; align-items:start;'>
-                        <div style='flex:1;'>
-                            <div class='aidu-card-title'>{v['nombre']}</div>
+                    <div style='display:flex; justify-content:space-between; align-items:center; gap:16px;'>
+                        <div style='flex:1; min-width:0;'>
+                            <div class='aidu-card-title' style='margin-bottom:4px;'>{v['nombre']}</div>
                             <div class='aidu-card-meta'>
-                                🏛️ {v.get('organismo') or '—'} · 📍 {v.get('region') or '—'} · 🎯 {cat_aidu}
+                                <span class='aidu-card-code'>{v['codigo_externo']}</span> · 
+                                🏛️ {v.get('organismo') or '—'} · 
+                                📍 {v.get('region') or '—'} · 
+                                🎯 {cat_aidu}
                             </div>
-                            <div class='aidu-card-code'>{v['codigo_externo']}</div>
                         </div>
                         <div style='text-align:right; min-width:140px;'>
                             <div style='font-weight:700; color:#1E40AF; font-size:16px;'>{formato_clp(v.get('monto_referencial', 0))}</div>
-                            <div style='font-size:11px; color:{border_color}; font-weight:600;'>
-                                {f"⏰ {dias_cierre}d" if dias_cierre is not None else "—"}
+                            <div style='font-size:11px; color:{border_color}; font-weight:600; margin-bottom:6px;'>
+                                {f"⏰ {dias_cierre}d para cerrar" if dias_cierre is not None else "—"}
                             </div>
+                            <a href='{url_mp}' target='_blank' style='display:inline-block; padding:5px 12px; background:#1E40AF; color:white; border-radius:6px; text-decoration:none; font-size:11px; font-weight:600;'>
+                                🌐 Ver en MP
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -2582,10 +2640,10 @@ if tab_cartera:
         SELECT * FROM aidu_proyectos
         ORDER BY
             CASE estado
-                WHEN 'LISTO_OFERTAR' THEN 1
-                WHEN 'EN_PREPARACION' THEN 2
-                WHEN 'ESTUDIO' THEN 3
-                WHEN 'PROSPECTO' THEN 4
+                WHEN 'EN_OFERTA' THEN 1
+                WHEN 'EN_ESTUDIO' THEN 2
+                WHEN 'EN_ESTUDIO' THEN 3
+                WHEN 'EN_CARTERA' THEN 4
                 ELSE 5
             END,
             fecha_cierre ASC
@@ -2598,10 +2656,10 @@ if tab_cartera:
 
     cols = st.columns(6)
     cols[0].metric("Total cartera", len(proyectos))
-    cols[1].metric("Prospectos", estados_count.get("PROSPECTO", 0))
-    cols[2].metric("En estudio", estados_count.get("ESTUDIO", 0))
-    cols[3].metric("Preparación", estados_count.get("EN_PREPARACION", 0))
-    cols[4].metric("Listo ofertar", estados_count.get("LISTO_OFERTAR", 0))
+    cols[1].metric("Prospectos", estados_count.get("EN_CARTERA", 0))
+    cols[2].metric("En estudio", estados_count.get("EN_ESTUDIO", 0))
+    cols[3].metric("Preparación", estados_count.get("EN_ESTUDIO", 0))
+    cols[4].metric("Listo ofertar", estados_count.get("EN_OFERTA", 0))
     cols[5].metric("Adjudicadas", estados_count.get("ADJUDICADO", 0))
 
     st.divider()
@@ -2613,11 +2671,11 @@ if tab_cartera:
         
         # Mapa de próxima acción según estado
         proxima_accion = {
-            "PROSPECTO": ("🔬 Estudiar próximo", "ESTUDIO"),
-            "ESTUDIO": ("📋 Pasar a Preparación", "EN_PREPARACION"),
-            "EN_PREPARACION": ("🚀 Marcar Listo para Ofertar", "LISTO_OFERTAR"),
-            "LISTO_OFERTAR": ("📤 Marcar como Ofertada", "OFERTADO"),
-            "OFERTADO": ("✅ Marcar Adjudicada", "ADJUDICADO"),
+            "EN_CARTERA": ("🔬 Estudiar próximo", "EN_ESTUDIO"),
+            "EN_ESTUDIO": ("📋 Pasar a Preparación", "EN_ESTUDIO"),
+            "EN_ESTUDIO": ("🚀 Marcar Listo para Ofertar", "EN_OFERTA"),
+            "EN_OFERTA": ("📤 Marcar como Ofertada", "LISTO_SUBIR"),
+            "LISTO_SUBIR": ("✅ Marcar Adjudicada", "ADJUDICADO"),
         }
         
         for p in proyectos:
@@ -2668,11 +2726,11 @@ if tab_cartera:
                     col3.metric("Días cierre", f"{emoji_dias(dias)} {dias}")
 
                 # Alerta si días al cierre crítico
-                if dias is not None and dias <= 3 and p["estado"] not in ("OFERTADO", "ADJUDICADO", "PERDIDO"):
+                if dias is not None and dias <= 3 and p["estado"] not in ("LISTO_SUBIR", "ADJUDICADO", "PERDIDO"):
                     st.warning(f"⚠️ ¡Cierra en {dias} día{'s' if dias != 1 else ''}! Acelera la preparación.")
                 
                 # 🆕 Indicadores de readiness (checklist + paquete)
-                if p["estado"] in ("EN_PREPARACION", "LISTO_OFERTAR"):
+                if p["estado"] in ("EN_ESTUDIO", "EN_OFERTA"):
                     try:
                         from app.core.precalificacion import progreso_checklist
                         prog_chk = progreso_checklist(p["id"])
@@ -2710,7 +2768,7 @@ if tab_cartera:
                 if accion:
                     label, nuevo_estado = accion
                     if col_a.button(label, key=f"adv_{p['id']}", use_container_width=True, type="primary"):
-                        _cambiar_estado(p["id"], nuevo_estado, paquete=(nuevo_estado == "LISTO_OFERTAR"))
+                        _cambiar_estado(p["id"], nuevo_estado, paquete=(nuevo_estado == "EN_OFERTA"))
                         st.rerun()
                 elif p["estado"] == "ADJUDICADO":
                     col_a.success("🏆 Adjudicada")
@@ -3087,7 +3145,7 @@ if tab_estudio:
     <div class="aidu-hero">
         <h1 style="margin:0; font-size:32px;">🔬 Estudio</h1>
         <p style="margin:4px 0 0; font-size:14px; color:#64748B;">
-            Análisis profundo de bases técnicas con IA · Descarga automática de documentación · Decisión final de cotizar
+            Análisis profundo de bases técnicas · Decisión final de cotizar antes de pasar a Ofertar
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -3095,93 +3153,84 @@ if tab_estudio:
     conn = get_connection()
     proyectos_estudio = conn.execute("""
         SELECT * FROM aidu_proyectos
-        WHERE estado IN ('ESTUDIO', 'EN_PREPARACION')
-        ORDER BY 
-            CASE estado WHEN 'EN_PREPARACION' THEN 1 ELSE 2 END,
-            fecha_cierre ASC
+        WHERE estado = 'EN_ESTUDIO'
+        ORDER BY fecha_cierre ASC
     """).fetchall()
     proyectos_estudio = [dict(p) for p in proyectos_estudio]
     conn.close()
     
     col_s1, col_s2, col_s3 = st.columns(3)
-    en_estudio = sum(1 for p in proyectos_estudio if p["estado"] == "ESTUDIO")
-    en_prep = sum(1 for p in proyectos_estudio if p["estado"] == "EN_PREPARACION")
     monto_total = sum(p.get("monto_referencial") or 0 for p in proyectos_estudio)
+    cierran_pronto = sum(1 for p in proyectos_estudio if p.get("fecha_cierre") and (calcular_dias_cierre(p["fecha_cierre"]) or 99) <= 7)
     
-    col_s1.metric("🔬 En estudio", en_estudio)
-    col_s2.metric("🛠️ En preparación", en_prep)
-    col_s3.metric("Monto total", formato_clp(monto_total))
+    col_s1.metric("🔬 Proyectos en estudio", len(proyectos_estudio))
+    col_s2.metric("💰 Monto total", formato_clp(monto_total))
+    col_s3.metric("⏰ Cierran ≤7d", cierran_pronto)
     
     if not proyectos_estudio:
         st.info("📭 Sin proyectos en estudio. Mueve proyectos desde Cartera para empezar el análisis profundo.")
         if st.button("📂 Ir a Cartera", type="primary"):
-            st.session_state["nav_principal"] = "📂 2. Cartera"
+            st.query_params["nav"] = "cartera"
             st.rerun()
     else:
-        st.markdown("##### 📋 Proyectos en estudio")
-        st.caption("Revisa los antecedentes en profundidad. Si la decisión es positiva, pasa a 'Ofertar' para confección de oferta.")
+        st.caption("💡 Cada proyecto en estudio debe tener sus bases técnicas analizadas (en la ficha → tab IA) antes de avanzar a Ofertar.")
         
         for p in proyectos_estudio:
-            color_estado = "#0E7490" if p["estado"] == "ESTUDIO" else "#1E40AF"
+            dias = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
+            border = "#DC2626" if dias is not None and dias <= 3 else "#D97706" if dias is not None and dias <= 7 else "#0E7490"
+            url_mp = p.get("url_mp") or f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={p['codigo_externo']}"
             
-            with st.container():
-                st.markdown(f"""
-                <div class='aidu-card'>
-                    <div style='display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;'>
-                        <div style='flex:1;'>
-                            <div class='aidu-card-title'>{p['nombre']}</div>
-                            <div class='aidu-card-meta'>
-                                <span class='estado-{p["estado"]}'>{p["estado"]}</span> · 
-                                🏛️ {p.get('organismo') or '—'} · 📍 {p.get('region') or '—'} · 
-                                🎯 {p.get('cod_servicio_aidu') or 'Sin categoría'}
-                            </div>
+            st.markdown(f"""
+            <div class='aidu-card' style='border-left:4px solid {border};'>
+                <div style='display:flex; justify-content:space-between; align-items:start;'>
+                    <div style='flex:1;'>
+                        <div class='aidu-card-title'>{p['nombre']}</div>
+                        <div class='aidu-card-meta'>
+                            <span class='aidu-card-code'>{p['codigo_externo']}</span> · 
+                            🏛️ {p.get('organismo') or '—'} · 
+                            📍 {p.get('region') or '—'} · 
+                            🎯 {p.get('cod_servicio_aidu') or '—'}
                         </div>
-                        <div style='text-align:right; min-width:160px;'>
-                            <div style='font-weight:700; color:{color_estado}; font-size:18px;'>{formato_clp(p.get('monto_referencial', 0))}</div>
+                    </div>
+                    <div style='text-align:right; min-width:160px;'>
+                        <div style='font-weight:700; color:#1E40AF; font-size:18px;'>{formato_clp(p.get('monto_referencial', 0))}</div>
+                        <div style='font-size:11px; font-weight:600; color:{border};'>
+                            {f"⏰ {dias}d para cerrar" if dias is not None else "—"}
                         </div>
                     </div>
                 </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_a, col_b, col_c, col_d = st.columns([2, 2, 2, 1])
+            
+            with col_a:
+                if st.button("📋 Abrir ficha completa", key=f"ver_est_{p['id']}", use_container_width=True, type="primary"):
+                    st.session_state["view_proyecto_id"] = p["id"]
+                    st.rerun()
+            
+            with col_b:
+                st.markdown(f"""
+                <a href='{url_mp}' target='_blank' style='display:block; padding:9px 14px; background:white; color:#1E40AF; text-align:center; border-radius:8px; text-decoration:none; font-weight:600; font-size:13px; border:1px solid #1E40AF;'>
+                    🌐 Ver en MP
+                </a>
                 """, unsafe_allow_html=True)
-                
-                col_a, col_b, col_c, col_d = st.columns(4)
-                
-                with col_a:
-                    if st.button("👁️ Ver detalle completo", key=f"ver_est_{p['id']}", use_container_width=True):
-                        st.session_state["view_proyecto_id"] = p["id"]
-                        st.rerun()
-                
-                with col_b:
-                    if st.button("🤖 Analizar bases IA", key=f"ia_est_{p['id']}", use_container_width=True):
-                        st.session_state["ia_proyecto_pre"] = p["codigo_externo"]
-                        st.session_state["nav_principal"] = "🤖 Análisis IA"
-                        st.rerun()
-                
-                with col_c:
-                    if p["estado"] == "ESTUDIO":
-                        if st.button("➡️ Pasar a Preparación", key=f"prep_{p['id']}", use_container_width=True, type="primary"):
-                            conn = get_connection()
-                            conn.execute("UPDATE aidu_proyectos SET estado='EN_PREPARACION' WHERE id=?", (p["id"],))
-                            conn.commit()
-                            conn.close()
-                            st.success(f"✅ {p['nombre']} pasó a En Preparación")
-                            st.rerun()
-                    else:
-                        if st.button("➡️ Pasar a Ofertar", key=f"of_{p['id']}", use_container_width=True, type="primary"):
-                            conn = get_connection()
-                            conn.execute("UPDATE aidu_proyectos SET estado='LISTO_OFERTAR' WHERE id=?", (p["id"],))
-                            conn.commit()
-                            conn.close()
-                            st.success(f"✅ {p['nombre']} listo para ofertar")
-                            st.rerun()
-                
-                with col_d:
-                    if st.button("❌ Descartar", key=f"desc_est_{p['id']}", use_container_width=True):
-                        conn = get_connection()
-                        conn.execute("UPDATE aidu_proyectos SET estado='DESCARTADO' WHERE id=?", (p["id"],))
-                        conn.commit()
-                        conn.close()
-                        st.warning(f"Proyecto descartado")
-                        st.rerun()
+            
+            with col_c:
+                if st.button("➡️ Pasar a Ofertar", key=f"of_{p['id']}", use_container_width=True):
+                    conn = get_connection()
+                    conn.execute("UPDATE aidu_proyectos SET estado='EN_OFERTA' WHERE id=?", (p["id"],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+            
+            with col_d:
+                if st.button("❌", key=f"desc_est_{p['id']}", use_container_width=True, help="Descartar"):
+                    conn = get_connection()
+                    conn.execute("UPDATE aidu_proyectos SET estado='DESCARTADO' WHERE id=?", (p["id"],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
 
 
 # ============================================================
@@ -3200,7 +3249,7 @@ if tab_ofertar:
     conn = get_connection()
     proyectos_ofertar = conn.execute("""
         SELECT * FROM aidu_proyectos
-        WHERE estado = 'LISTO_OFERTAR'
+        WHERE estado = 'EN_OFERTA'
         ORDER BY fecha_cierre ASC
     """).fetchall()
     proyectos_ofertar = [dict(p) for p in proyectos_ofertar]
@@ -3216,7 +3265,7 @@ if tab_ofertar:
     if not proyectos_ofertar:
         st.info("📭 Sin proyectos listos para ofertar. Avanza desde Estudio cuando hayas tomado la decisión de cotizar.")
         if st.button("🔬 Ir a Estudio", type="primary"):
-            st.session_state["nav_principal"] = "🔬 3. Estudio"
+            st.query_params["nav"] = "estudio"
             st.rerun()
     else:
         st.markdown("##### 🎯 Confecciona la oferta")
@@ -3272,7 +3321,7 @@ if tab_ofertar:
             with col4:
                 if st.button("✅ Marcar Ofertado", key=f"of_done_{p['id']}", use_container_width=True):
                     conn = get_connection()
-                    conn.execute("UPDATE aidu_proyectos SET estado='OFERTADO' WHERE id=?", (p["id"],))
+                    conn.execute("UPDATE aidu_proyectos SET estado='LISTO_SUBIR' WHERE id=?", (p["id"],))
                     conn.commit()
                     conn.close()
                     st.success("Marcada como ofertada → ahora en 'Subir a MP'")
@@ -3297,7 +3346,7 @@ if tab_subir:
     conn = get_connection()
     proyectos_subir = conn.execute("""
         SELECT * FROM aidu_proyectos
-        WHERE estado = 'OFERTADO'
+        WHERE estado = 'LISTO_SUBIR'
         ORDER BY fecha_cierre ASC
     """).fetchall()
     proyectos_subir = [dict(p) for p in proyectos_subir]
@@ -3310,7 +3359,7 @@ if tab_subir:
     if not proyectos_subir:
         st.info("📭 Sin ofertas listas para subir. Avanza ofertas desde 'Ofertar' cuando estén completas.")
         if st.button("📝 Ir a Ofertar", type="primary"):
-            st.session_state["nav_principal"] = "📝 4. Ofertar"
+            st.query_params["nav"] = "ofertar"
             st.rerun()
     else:
         st.markdown("##### 📋 Checklist de subida a MP")
@@ -3356,7 +3405,7 @@ if tab_subir:
             with col3:
                 if st.button("✅ Confirmar subida", key=f"sub_done_{p['id']}", use_container_width=True, type="primary"):
                     conn = get_connection()
-                    conn.execute("UPDATE aidu_proyectos SET estado='OFERTADO', notas = COALESCE(notas, '') || char(10) || 'Subida a MP confirmada el ' || datetime('now', 'localtime') WHERE id=?", (p["id"],))
+                    conn.execute("UPDATE aidu_proyectos SET estado='LISTO_SUBIR', notas = COALESCE(notas, '') || char(10) || 'Subida a MP confirmada el ' || datetime('now', 'localtime') WHERE id=?", (p["id"],))
                     conn.commit()
                     conn.close()
                     st.success("✅ Subida confirmada. Esperando resultado de adjudicación.")

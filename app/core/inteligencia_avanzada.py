@@ -240,11 +240,11 @@ def detectar_competencia_recurrente(
 
 # Probabilidades por etapa (estimadas, calibrar con experiencia real)
 PROB_ETAPA = {
-    "PROSPECTO": 0.10,
-    "ESTUDIO": 0.25,
-    "EN_PREPARACION": 0.45,
-    "LISTO_OFERTAR": 0.65,
-    "OFERTADO": 0.40,  # bajó porque ya está en manos de evaluación
+    "EN_CARTERA": 0.10,
+    "EN_ESTUDIO": 0.25,
+    "EN_ESTUDIO": 0.45,
+    "EN_OFERTA": 0.65,
+    "LISTO_SUBIR": 0.40,  # bajó porque ya está en manos de evaluación
     "ADJUDICADO": 1.0,
 }
 
@@ -286,7 +286,7 @@ def forecast_pipeline_90d() -> Dict:
         por_etapa_dict = defaultdict(lambda: {"n": 0, "valor": 0, "esperado": 0})
         
         for p in proyectos:
-            etapa = p.get("estado", "PROSPECTO")
+            etapa = p.get("estado", "EN_CARTERA")
             prob = PROB_ETAPA.get(etapa, 0.1)
             valor = p.get("monto_referencial") or 0
             # Si tiene precio_ofertado usarlo, sino usar 95% del referencial (asumiendo 5% descuento)
@@ -308,7 +308,7 @@ def forecast_pipeline_90d() -> Dict:
             for etapa, data in por_etapa_dict.items()
         ]
         # Orden por flujo natural
-        orden = ["PROSPECTO", "ESTUDIO", "EN_PREPARACION", "LISTO_OFERTAR", "OFERTADO"]
+        orden = ["EN_CARTERA", "EN_ESTUDIO", "EN_ESTUDIO", "EN_OFERTA", "LISTO_SUBIR"]
         por_etapa.sort(key=lambda x: orden.index(x["etapa"]) if x["etapa"] in orden else 99)
         
         valor_total = sum(d["valor"] for d in por_etapa_dict.values())

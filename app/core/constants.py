@@ -45,19 +45,56 @@ MANDANTES_RECURRENTES_AIDU = [
 # ========================================
 # ESTADOS DEL PIPELINE
 # ========================================
+# ESTADOS DEL EMBUDO COMERCIAL (alineados 1:1 con UI)
+# 1. Buscar      → (sin estado, son licitaciones disponibles)
+# 2. Cartera     → EN_CARTERA
+# 3. Estudio     → EN_ESTUDIO
+# 4. Ofertar     → EN_OFERTA
+# 5. Subir a MP  → LISTO_SUBIR
+# Cerrados       → ADJUDICADO / PERDIDO / DESCARTADO
+# ========================================
 ESTADOS_PIPELINE = [
-    "PROSPECTO",
-    "ESTUDIO",
-    "EN_PREPARACION",
-    "LISTO_OFERTAR",
-    "OFERTADO",
+    "EN_CARTERA",
+    "EN_ESTUDIO",
+    "EN_OFERTA",
+    "LISTO_SUBIR",
     "ADJUDICADO",
     "PERDIDO",
     "DESCARTADO",
 ]
 
-ESTADOS_ACTIVOS = ["PROSPECTO", "ESTUDIO", "EN_PREPARACION", "LISTO_OFERTAR", "OFERTADO"]
+ESTADOS_ACTIVOS = ["EN_CARTERA", "EN_ESTUDIO", "EN_OFERTA", "LISTO_SUBIR"]
 ESTADOS_CERRADOS = ["ADJUDICADO", "PERDIDO", "DESCARTADO"]
+
+# Mapping etapa embudo → estado BD (para UI)
+EMBUDO_ETAPAS = [
+    ("📂", "Cartera",    "EN_CARTERA"),
+    ("🔬", "Estudio",    "EN_ESTUDIO"),
+    ("📝", "Ofertar",    "EN_OFERTA"),
+    ("📤", "Subir a MP", "LISTO_SUBIR"),
+]
+
+# Labels amigables de estados (para mostrar en UI)
+ESTADO_LABELS = {
+    "EN_CARTERA":  "📂 En Cartera",
+    "EN_ESTUDIO":  "🔬 En Estudio",
+    "EN_OFERTA":   "📝 En Oferta",
+    "LISTO_SUBIR": "📤 Listo Subir",
+    "ADJUDICADO":  "🏆 Adjudicado",
+    "PERDIDO":     "❌ Perdido",
+    "DESCARTADO":  "🗑️ Descartado",
+}
+
+# Colores por estado
+ESTADO_COLORES = {
+    "EN_CARTERA":  ("#64748B", "#F1F5F9"),
+    "EN_ESTUDIO":  ("#0E7490", "#CFFAFE"),
+    "EN_OFERTA":   ("#9A3412", "#FED7AA"),
+    "LISTO_SUBIR": ("#6B21A8", "#E9D5FF"),
+    "ADJUDICADO":  ("#14532D", "#BBF7D0"),
+    "PERDIDO":     ("#7F1D1D", "#FEE2E2"),
+    "DESCARTADO":  ("#475569", "#F1F5F9"),
+}
 
 # ========================================
 # COLORES UI (consistencia visual)
