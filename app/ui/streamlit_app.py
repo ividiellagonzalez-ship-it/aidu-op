@@ -77,34 +77,79 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-    --aidu-blue: #1E40AF;
-    --aidu-blue-light: #3B82F6;
-    --aidu-blue-dark: #1E3A8A;
-    --aidu-blue-50: #EFF6FF;
-    --aidu-blue-100: #DBEAFE;
+    /* ========================================================
+       AIDU CORPORATE COLOR SYSTEM
+       
+       Color primario: Azul cobalto profundo (confianza + profesionalismo)
+       Color secundario: Violeta corporativo (línea Gestión, diferenciador)
+       Color de acento: Cyan eléctrico (highlights, micro-interacciones)
+       Neutros: Slate (modernos, legibles, no fríos como blue-gray)
+       ======================================================== */
     
-    --aidu-success: #15803D;
-    --aidu-success-bg: #D1FAE5;
-    --aidu-warning: #D97706;
-    --aidu-warning-bg: #FEF3C7;
-    --aidu-danger: #DC2626;
-    --aidu-danger-bg: #FEE2E2;
+    /* === Marca AIDU (azul cobalto, identidad principal) === */
+    --aidu-brand:        #1D4ED8;   /* azul corporativo principal */
+    --aidu-brand-light:  #3B82F6;   /* hover, links activos */
+    --aidu-brand-dark:   #1E3A8A;   /* títulos, énfasis */
+    --aidu-brand-50:     #EFF6FF;   /* backgrounds suaves */
+    --aidu-brand-100:    #DBEAFE;   /* badges info */
+    --aidu-brand-200:    #BFDBFE;   /* dividers azules */
     
-    --aidu-gray-50: #F8FAFC;
-    --aidu-gray-100: #F1F5F9;
-    --aidu-gray-200: #E2E8F0;
-    --aidu-gray-300: #CBD5E1;
-    --aidu-gray-500: #64748B;
-    --aidu-gray-700: #334155;
-    --aidu-gray-900: #0F172A;
+    /* === Compatibilidad con código existente (alias) === */
+    --aidu-blue:         var(--aidu-brand);
+    --aidu-blue-light:   var(--aidu-brand-light);
+    --aidu-blue-dark:    var(--aidu-brand-dark);
+    --aidu-blue-50:      var(--aidu-brand-50);
+    --aidu-blue-100:     var(--aidu-brand-100);
     
-    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
-    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12), 0 4px 8px rgba(15, 23, 42, 0.06);
-    --shadow-xl: 0 20px 40px rgba(15, 23, 42, 0.15), 0 10px 20px rgba(15, 23, 42, 0.08);
-    --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.25);
+    /* === Línea Gestión (violeta corporativo, diferenciador) === */
+    --aidu-purple:       #7C3AED;   /* GP-XX, gestión */
+    --aidu-purple-light: #A78BFA;
+    --aidu-purple-50:    #F5F3FF;
+    --aidu-purple-100:   #EDE9FE;
     
+    /* === Línea Estructural (azul cobalto, base) === */
+    --aidu-structural:        var(--aidu-brand);
+    --aidu-structural-50:     var(--aidu-brand-50);
+    --aidu-structural-100:    var(--aidu-brand-100);
+    
+    /* === Acento eléctrico (cyan, para destacar) === */
+    --aidu-accent:       #06B6D4;
+    --aidu-accent-50:    #ECFEFF;
+    --aidu-accent-100:   #CFFAFE;
+    
+    /* === Estados semánticos === */
+    --aidu-success:      #059669;   /* verde más vibrante */
+    --aidu-success-50:   #ECFDF5;
+    --aidu-success-bg:   #D1FAE5;
+    --aidu-warning:      #D97706;
+    --aidu-warning-50:   #FFFBEB;
+    --aidu-warning-bg:   #FEF3C7;
+    --aidu-danger:       #DC2626;
+    --aidu-danger-50:    #FEF2F2;
+    --aidu-danger-bg:    #FEE2E2;
+    
+    /* === Neutros Slate (modernos, legibles) === */
+    --aidu-gray-50:      #F8FAFC;
+    --aidu-gray-100:     #F1F5F9;
+    --aidu-gray-200:     #E2E8F0;
+    --aidu-gray-300:     #CBD5E1;
+    --aidu-gray-400:     #94A3B8;
+    --aidu-gray-500:     #64748B;
+    --aidu-gray-600:     #475569;
+    --aidu-gray-700:     #334155;
+    --aidu-gray-800:     #1E293B;
+    --aidu-gray-900:     #0F172A;
+    
+    /* === Sombras refinadas (sutiles, nivel premium) === */
+    --shadow-xs:    0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-sm:    0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md:    0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+    --shadow-lg:    0 10px 25px rgba(15, 23, 42, 0.12), 0 4px 8px rgba(15, 23, 42, 0.06);
+    --shadow-xl:    0 20px 40px rgba(15, 23, 42, 0.15), 0 10px 20px rgba(15, 23, 42, 0.08);
+    --shadow-glow:  0 0 0 3px rgba(29, 78, 216, 0.15);
+    --shadow-glow-purple: 0 0 0 3px rgba(124, 58, 237, 0.15);
+    
+    /* === Radio === */
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
@@ -1204,24 +1249,25 @@ def emoji_dias(d):
 
 def url_licitacion_mp(codigo: str) -> str:
     """
-    URL canónica de una licitación en Mercado Público.
-    Es la URL OFICIAL que usa MP en todos sus links públicos.
-    Funciona siempre que la licitación esté publicada y vigente.
+    URL pública de Mercado Público para llegar a la ficha de una licitación.
+    
+    Estrategia: usar el buscador público (que NO requiere sesión) con el
+    código pre-cargado. MP redirige automáticamente al detalle si encuentra
+    una coincidencia exacta. Para licitaciones vigentes funciona casi siempre.
+    
+    Para licitaciones históricas/cerradas, lleva al buscador donde el usuario
+    puede ver el resultado y entrar manualmente.
     """
     if not codigo:
         return "https://www.mercadopublico.cl/"
-    return f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={codigo}"
+    # URL del buscador público nuevo: lleva a resultados con el código
+    # No requiere sesión, no genera error 403
+    return f"https://www.mercadopublico.cl/Portal/Modules/Site/Busquedas/BuscadorAvanzado.aspx?qs={codigo}"
 
 
-def url_licitacion_mp(codigo: str) -> str:
-    """
-    Backup: URL de búsqueda en MP por si la licitación no responde directo.
-    Lleva al buscador con el código pre-cargado.
-    """
-    if not codigo:
-        return "https://www.mercadopublico.cl/Home/Inicio"
-    # URL del nuevo buscador público (sin requerir login)
-    return f"https://www.mercadopublico.cl/Home/Inicio?codigo={codigo}"
+def url_busqueda_mp(codigo: str) -> str:
+    """Alias para compatibilidad con código antiguo."""
+    return url_licitacion_mp(codigo)
 
 
 # ============================================================
@@ -2347,9 +2393,28 @@ with st.sidebar:
     if ult_act != '—':
         ult_act = ult_act[:16]  # Solo fecha + hora corta
     
+    # Info BD: contar licitaciones en BD para mostrar persistencia
+    try:
+        _conn_bd = get_connection()
+        _bd_total = _conn_bd.execute(
+            "SELECT COUNT(*) FROM mp_licitaciones_vigentes"
+        ).fetchone()[0] if _tabla_existe(_conn_bd, "mp_licitaciones_vigentes") else 0
+        _bd_hist = _conn_bd.execute(
+            "SELECT COUNT(*) FROM mp_licitaciones_adj"
+        ).fetchone()[0] if _tabla_existe(_conn_bd, "mp_licitaciones_adj") else 0
+        _conn_bd.close()
+    except Exception:
+        _bd_total, _bd_hist = 0, 0
+    
     st.markdown(f"""
     <div style='font-size:10px; color:#94A3B8; padding:0 8px;'>
+        <div style='margin-bottom:8px;'>
+            <div style='font-weight:600; color:#475569; margin-bottom:4px;'>💾 Base de datos local</div>
+            <div>Vigentes: <strong style='color:#1D4ED8;'>{_bd_total:,}</strong></div>
+            <div>Histórico: <strong style='color:#1D4ED8;'>{_bd_hist:,}</strong></div>
+        </div>
         <div>Última sync: <strong style='color:#475569;'>{ult_act}</strong></div>
+        <div style='margin-top:6px; font-size:9px; color:#CBD5E1;'>BD persistente · sync diario 7am</div>
         <div style='margin-top:6px;'><a href='https://github.com/ividiellagonzalez-ship-it/aidu-op' target='_blank' style='color:#3B82F6; text-decoration:none;'>📦 Ver código →</a></div>
     </div>
     """, unsafe_allow_html=True)
@@ -3581,51 +3646,98 @@ if tab_buscar:
         # 🆕 Presets rápidos
         st.caption("⚡ Presets rápidos")
         col_p1, col_p2 = st.columns(2)
-        if col_p1.button("📍 Mi región", key="preset_region", use_container_width=True, help="Solo O'Higgins"):
-            st.session_state["op_reg"] = next(
-                (f"{r[0][:30]} ({r[1]})" for r in _cached_regiones() if "Higgins" in r[0]),
-                "Todas"
-            )
+        if col_p1.button("📍 Mi región", key="preset_region", use_container_width=True, help="Filtra por O'Higgins"):
+            st.session_state["op_regs_multi"] = ["VI"]
             st.rerun()
-        if col_p2.button("💎 Sweet spot", key="preset_sweet", use_container_width=True, help="$3M - $15M"):
-            st.session_state["op_min"] = 3
-            st.session_state["op_max"] = 15
+        if col_p2.button("🏗️ Estructural", key="preset_estr", use_container_width=True, help="Solo CE-XX (cálculo, peritaje, ITO)"):
+            from app.core.catalogo_aidu import codigos_por_linea
+            st.session_state["op_cats_multi"] = codigos_por_linea("Estructural")
             st.rerun()
         
         col_p3, col_p4 = st.columns(2)
-        if col_p3.button("🏗️ Estructural", key="preset_estr", use_container_width=True, help="Solo CE-XX"):
-            st.session_state["op_busqueda"] = "estructural"
+        if col_p3.button("📊 Gestión", key="preset_gest", use_container_width=True, help="Solo GP-XX (PMO, BPM, optimización)"):
+            from app.core.catalogo_aidu import codigos_por_linea
+            st.session_state["op_cats_multi"] = codigos_por_linea("Gestión")
             st.rerun()
-        if col_p4.button("🔄 Limpiar", key="preset_clear", use_container_width=True):
-            for k in ["op_busqueda", "op_min", "op_max"]:
+        if col_p4.button("🌎 Zonas AIDU", key="preset_zonas", use_container_width=True, help="V + RM + O'Higgins + Los Lagos"):
+            st.session_state["op_regs_multi"] = ["V", "RM", "VI", "X"]
+            st.rerun()
+        
+        col_p5, col_p6 = st.columns(2)
+        if col_p5.button("💎 Sweet spot", key="preset_sweet", use_container_width=True, help="Monto $3M - $15M"):
+            st.session_state["op_min"] = 3
+            st.session_state["op_max"] = 15
+            st.rerun()
+        if col_p6.button("🔄 Limpiar todo", key="preset_clear", use_container_width=True):
+            for k in ["op_busqueda", "op_min", "op_max", "op_cats_multi", "op_regs_multi", "op_org"]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
         
         st.divider()
 
-        # 🆕 Búsqueda libre por palabra clave
+        # Búsqueda libre por palabra clave
         busqueda = st.text_input(
-            "🔍 Buscar",
+            "🔍 Buscar palabra clave",
             placeholder="ej: estructural, escuela, Machalí...",
             key="op_busqueda",
             help="Busca en nombre, descripción y organismo"
         )
 
-        # Categoría AIDU
-        cats = _cached_categorias()
-        cat_options = ["Todas"] + [f"{c[0]} ({c[1]})" for c in cats]
-        cat_sel_label = st.selectbox("Categoría AIDU", cat_options, key="op_cat")
-        cat_sel = "Todas" if cat_sel_label == "Todas" else cat_sel_label.split(" ")[0]
+        # ============ Categoría AIDU MULTI con descripciones ============
+        from app.core.catalogo_aidu import CATALOGO_AIDU, label_servicio
+        
+        cats_disponibles = list(CATALOGO_AIDU.keys())
+        cat_format = lambda cod: label_servicio(cod, "completo")
+        
+        cats_seleccionadas = st.multiselect(
+            "🎯 Categorías AIDU",
+            options=cats_disponibles,
+            format_func=cat_format,
+            key="op_cats_multi",
+            help="Selecciona uno o más servicios. Vacío = todas las categorías."
+        )
 
-        # Región
-        regs = _cached_regiones()
-        reg_options = ["Todas"] + [f"{r[0][:30]} ({r[1]})" for r in regs]
-        reg_sel_label = st.selectbox("Región", reg_options, key="op_reg")
-        reg_sel = "Todas" if reg_sel_label == "Todas" else reg_sel_label.split(" (")[0]
+        # ============ Regiones MULTI ============
+        from app.core.catalogo_aidu import REGIONES_INTERES_AIDU, MP_REGION_TO_CODE
+        
+        regs_disponibles = list(REGIONES_INTERES_AIDU.keys())
+        reg_format = lambda code: f"{code} — {REGIONES_INTERES_AIDU[code]}"
+        
+        regs_seleccionadas = st.multiselect(
+            "📍 Regiones de operación",
+            options=regs_disponibles,
+            format_func=reg_format,
+            key="op_regs_multi",
+            help="Zonas con facilidades logísticas AIDU. Vacío = todas las regiones."
+        )
 
-        # Monto - SIN restricción por defecto (tú decides)
-        st.caption("Monto referencial (M CLP) · 0 = sin filtro")
+        # ============ Organismo (filtro nuevo) ============
+        # Cargar organismos disponibles desde BD
+        @st.cache_data(ttl=120)
+        def _cached_organismos():
+            try:
+                conn_org = get_connection()
+                rows = conn_org.execute(
+                    "SELECT DISTINCT organismo FROM mp_licitaciones_vigentes "
+                    "WHERE organismo IS NOT NULL AND organismo != '' "
+                    "ORDER BY organismo"
+                ).fetchall()
+                conn_org.close()
+                return [r[0] for r in rows]
+            except Exception:
+                return []
+        
+        organismos_lista = _cached_organismos()
+        org_seleccionados = st.multiselect(
+            "🏛️ Organismos (mandantes)",
+            options=organismos_lista,
+            key="op_org",
+            help=f"Filtrar por uno o más mandantes. {len(organismos_lista)} organismos disponibles. Vacío = todos."
+        )
+
+        # Monto - SIN restricción por defecto
+        st.caption("💰 Monto referencial (M CLP) · 0 = sin filtro")
         col_min, col_max = st.columns(2)
         monto_min_m = col_min.number_input(
             "Min", min_value=0, max_value=500, value=0, step=1,
@@ -3639,7 +3751,7 @@ if tab_buscar:
         )
 
         # Match score mínimo
-        score_min = st.slider("Match Score mín.", 0, 100, 50, 5, key="op_score")
+        score_min = st.slider("⭐ Match Score mín.", 0, 100, 50, 5, key="op_score")
 
         # Orden
         orden_label = st.selectbox(
@@ -3661,17 +3773,28 @@ if tab_buscar:
 
     # ----- Resultados -----
     with col_resultados:
-        # Llamada DEFENSIVA: si match_score.py no soporta busqueda_libre,
-        # hacemos el filtro en Python después
+        # Para compatibilidad con la firma actual de listar_oportunidades,
+        # tomamos la PRIMERA categoría/región seleccionada como filtro principal
+        # y aplicamos el resto (multi) en post-filtrado en Python.
+        cat_sel_legacy = cats_seleccionadas[0] if cats_seleccionadas and len(cats_seleccionadas) == 1 else "Todas"
+        
+        # Para región, mapear código corto a nombre completo de MP
+        reg_sel_legacy = "Todas"
+        if regs_seleccionadas and len(regs_seleccionadas) == 1:
+            code = regs_seleccionadas[0]
+            # Buscar el nombre canónico en MP
+            inv_map = {v: k for k, v in MP_REGION_TO_CODE.items() if v not in MP_REGION_TO_CODE.values() or k == REGIONES_INTERES_AIDU.get(v, v)}
+            reg_sel_legacy = REGIONES_INTERES_AIDU.get(code, "Todas")
+        
         kwargs_op = dict(
-            filtro_categoria=cat_sel,
-            filtro_region=reg_sel,
+            filtro_categoria=cat_sel_legacy,
+            filtro_region=reg_sel_legacy,
             monto_min=monto_min_m * 1_000_000 if monto_min_m > 0 else None,
             monto_max=monto_max_m * 1_000_000 if monto_max_m > 0 else None,
             score_min=score_min,
             solo_no_en_cartera=solo_nuevas,
             orden=orden_map[orden_label],
-            limit=100
+            limit=200,  # más amplio porque filtraremos en Python
         )
         
         # Intentar pasar busqueda_libre si la función la soporta
@@ -3696,6 +3819,31 @@ if tab_buscar:
                     or term in (op.get("descripcion", "") or "").lower()
                     or term in (op.get("organismo", "") or "").lower()
                 ]
+        
+        # ============ Post-filtrado MULTI ============
+        # Multi-categoría AIDU
+        if cats_seleccionadas and len(cats_seleccionadas) >= 1:
+            cats_set = set(cats_seleccionadas)
+            oportunidades = [
+                op for op in oportunidades
+                if (op.get("cod_servicio_aidu") or "") in cats_set
+            ]
+        
+        # Multi-región
+        if regs_seleccionadas:
+            regs_set = set(regs_seleccionadas)
+            oportunidades = [
+                op for op in oportunidades
+                if MP_REGION_TO_CODE.get((op.get("region") or "").strip(), "") in regs_set
+            ]
+        
+        # Filtro por organismo (multi)
+        if org_seleccionados:
+            orgs_set = set(org_seleccionados)
+            oportunidades = [
+                op for op in oportunidades
+                if (op.get("organismo") or "") in orgs_set
+            ]
 
         if not oportunidades:
             st.info("📭 Sin oportunidades con estos filtros. Prueba poner Monto Min/Max en 0 (sin filtro) o bajar el Match Score mínimo.")

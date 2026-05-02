@@ -54,12 +54,23 @@ for d in [AIDU_HOME, DATA_DIR, DB_DIR, RAW_DIR, BACKUP_DIR, LOGS_DIR, CONFIG_DIR
     d.mkdir(parents=True, exist_ok=True)
 
 
-# En Streamlit Cloud, copiar BD semilla si no existe (cold start)
+# Cold start en Streamlit Cloud: restaurar BD persistente desde el repo
+# La BD `data_semilla/aidu_op.db` se mantiene actualizada por el cron diario
+# de GitHub Actions (descarga_mp_diaria.yml) que hace commit-back con las
+# licitaciones nuevas. En cada cold start, restauramos desde ahí.
 if IS_STREAMLIT_CLOUD and not DB_PATH.exists():
-    seed_db = Path(__file__).parent.parent / "data_semilla" / "aidu_op_demo.db"
-    if seed_db.exists():
-        import shutil
-        shutil.copy2(seed_db, DB_PATH)
+    import shutil
+    REPO_ROOT = Path(__file__).parent.parent
+    
+    # Prioridad 1: BD persistente actualizada por el cron
+    bd_persistente = REPO_ROOT / "data_semilla" / "aidu_op.db"
+    # Prioridad 2: BD demo de respaldo
+    bd_demo = REPO_ROOT / "data_semilla" / "aidu_op_demo.db"
+    
+    if bd_persistente.exists():
+        shutil.copy2(bd_persistente, DB_PATH)
+    elif bd_demo.exists():
+        shutil.copy2(bd_demo, DB_PATH)
 
 
 # ============================================================

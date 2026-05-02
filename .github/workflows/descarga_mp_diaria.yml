@@ -2,19 +2,29 @@ name: Descarga Diaria Mercado Público
 
 on:
   schedule:
-    # 7am Chile (UTC-4 en verano, UTC-3 en invierno)
-    # Configurado a 11:00 UTC = 7:00 Chile invierno
-    - cron: '0 11 * * *'
-  workflow_dispatch:  # Permite ejecución manual desde UI de GitHub
+    # 7am Chile (UTC-4 verano, UTC-3 invierno)
+    # 10:00 UTC = 7:00 Chile en horario de verano
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      dias_atras:
+        description: 'Días hacia atrás a descargar (default 1, máx 30)'
+        required: false
+        default: '1'
+
+permissions:
+  contents: write  # Necesario para commit-back de la BD
 
 jobs:
   descarga:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -26,16 +36,46 @@ jobs:
         run: |
           pip install -r requirements.txt
       
-      - name: Ejecutar descarga MP
+      - name: Restaurar BD persistente (data_semilla → ~/AIDU_Op/data/db/aidu_op.db)
+        run: |
+          mkdir -p ~/AIDU_Op/data/db
+          if [ -f data_semilla/aidu_op.db ]; then
+            cp data_semilla/aidu_op.db ~/AIDU_Op/data/db/aidu_op.db
+            echo "✅ BD restaurada desde data_semilla/"
+            ls -la ~/AIDU_Op/data/db/
+          else
+            echo "⚠️ No hay BD semilla, se creará desde cero"
+          fi
+      
+      - name: Ejecutar descarga MP (incremental)
         env:
           MP_TICKET: ${{ secrets.MP_TICKET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DIAS_ATRAS: ${{ inputs.dias_atras || '1' }}
         run: |
-          python -m app.core.descarga_diaria
+          python -c "
+          import os
+          from app.core.descarga_diaria import ejecutar_descarga
+          dias = int(os.environ.get('DIAS_ATRAS', '1'))
+          res = ejecutar_descarga(dias_atras=dias)
+          print(f'Resultado: {res}')
+          "
       
-      - name: Notificar resultado en logs
-        if: always()
+      - name: Sincronizar BD actualizada → data_semilla/
         run: |
-          echo "✅ Job completado a las $(date)"
+          cp ~/AIDU_Op/data/db/aidu_op.db data_semilla/aidu_op.db
+          ls -la data_semilla/
+      
+      - name: Commit y push de BD actualizada
+        run: |
+          git config user.name "AIDU Op Bot"
+          git config user.email "bot@aidu-op.cl"
+          git add data_semilla/aidu_op.db
+          if git diff --staged --quiet; then
+            echo "✅ Sin cambios en la BD (no hay licitaciones nuevas)"
+          else
+            FECHA=$(date -u +'%Y-%m-%d %H:%M UTC')
+            git commit -m "data: sync BD MP $FECHA [skip ci]"
+            git push
+            echo "✅ BD actualizada y pusheada al repo"
+          fi
