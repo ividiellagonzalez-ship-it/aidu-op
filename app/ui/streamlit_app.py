@@ -70,19 +70,26 @@ st.set_page_config(
 st.markdown("""
 <style>
 /* ============================================================
-   AIDU OP · DESIGN SYSTEM v2.1
+   AIDU OP · DESIGN SYSTEM v3.0 — World-class
    ============================================================ */
 
 /* Tipografía global - Inter via Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
     --aidu-blue: #1E40AF;
     --aidu-blue-light: #3B82F6;
     --aidu-blue-dark: #1E3A8A;
+    --aidu-blue-50: #EFF6FF;
+    --aidu-blue-100: #DBEAFE;
+    
     --aidu-success: #15803D;
+    --aidu-success-bg: #D1FAE5;
     --aidu-warning: #D97706;
+    --aidu-warning-bg: #FEF3C7;
     --aidu-danger: #DC2626;
+    --aidu-danger-bg: #FEE2E2;
+    
     --aidu-gray-50: #F8FAFC;
     --aidu-gray-100: #F1F5F9;
     --aidu-gray-200: #E2E8F0;
@@ -91,13 +98,509 @@ st.markdown("""
     --aidu-gray-700: #334155;
     --aidu-gray-900: #0F172A;
     
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
-    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.10);
+    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12), 0 4px 8px rgba(15, 23, 42, 0.06);
+    --shadow-xl: 0 20px 40px rgba(15, 23, 42, 0.15), 0 10px 20px rgba(15, 23, 42, 0.08);
+    --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.25);
     
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
+    --radius-xl: 20px;
+    
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============ Animaciones globales ============ */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+}
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+@keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* ============ Aplicar Inter a toda la app ============ */
+html, body, [class*="st-"], [class*="css-"], div, p, span, button, label, input {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+code, pre, [class*="monospace"] {
+    font-family: 'JetBrains Mono', 'Menlo', monospace !important;
+}
+
+/* Smooth scroll global */
+html { scroll-behavior: smooth; }
+
+/* ============ Logo AIDU ============ */
+.aidu-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.aidu-logo .dot {
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(135deg, var(--aidu-blue) 0%, var(--aidu-blue-light) 100%);
+    border-radius: 50%;
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.5);
+    animation: pulse 2s ease-in-out infinite;
+}
+.aidu-logo .aidu-text {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--aidu-blue);
+    letter-spacing: -1px;
+}
+.aidu-logo .op-text {
+    font-size: 13px;
+    color: var(--aidu-gray-700);
+    padding: 3px 10px;
+    background: var(--aidu-gray-100);
+    border-radius: 6px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* ============ Tipografía ============ */
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif !important;
+    color: var(--aidu-gray-900) !important;
+    letter-spacing: -0.025em;
+    font-weight: 700 !important;
+}
+h1 { font-size: 30px !important; }
+h2 { font-size: 24px !important; }
+h3 { font-size: 19px !important; }
+h4 { font-size: 16px !important; }
+
+/* ============ Métricas profesionales con animación ============ */
+div[data-testid="stMetricValue"] {
+    font-weight: 800 !important;
+    color: var(--aidu-blue) !important;
+    font-size: 28px !important;
+    letter-spacing: -0.025em;
+    animation: fadeInUp 400ms ease-out;
+}
+div[data-testid="stMetricLabel"] {
+    font-size: 11px !important;
+    color: var(--aidu-gray-500) !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+div[data-testid="stMetricDelta"] {
+    font-size: 12px !important;
+    font-weight: 600;
+}
+
+/* Bloque metric con hover */
+div[data-testid="stMetric"] {
+    background: white;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--aidu-gray-200);
+    transition: all var(--transition-base);
+    box-shadow: var(--shadow-xs);
+}
+div[data-testid="stMetric"]:hover {
+    border-color: var(--aidu-blue-light);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+/* ============ Botones ============ */
+.stButton > button {
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    transition: all var(--transition-fast);
+    font-size: 13px;
+    border: 1px solid var(--aidu-gray-200);
+}
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+    border-color: var(--aidu-blue-light);
+}
+.stButton > button:active {
+    transform: translateY(0);
+}
+
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--aidu-blue) 0%, var(--aidu-blue-light) 100%);
+    border: none;
+    color: white !important;
+    box-shadow: 0 4px 12px rgba(30, 64, 175, 0.25);
+    font-weight: 600;
+}
+.stButton > button[kind="primary"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(30, 64, 175, 0.35);
+}
+
+/* Download button */
+.stDownloadButton > button {
+    background: linear-gradient(135deg, var(--aidu-success) 0%, #16A34A 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: var(--radius-md) !important;
+    font-weight: 600 !important;
+}
+
+/* ============ Inputs ============ */
+.stTextInput input,
+.stNumberInput input,
+.stSelectbox > div > div,
+.stTextArea textarea {
+    border-radius: var(--radius-sm) !important;
+    border-color: var(--aidu-gray-200) !important;
+    transition: all var(--transition-fast);
+}
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus {
+    border-color: var(--aidu-blue) !important;
+    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.1) !important;
+}
+
+/* ============ Estados con tags ============ */
+.estado-tag, [class^="estado-"] {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+.estado-PROSPECTO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-ESTUDIO { background: #CFFAFE; color: #0E7490; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-EN_PREPARACION { background: #DBEAFE; color: #1E40AF; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-LISTO_OFERTAR { background: #FED7AA; color: #9A3412; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-OFERTADO { background: #E9D5FF; color: #6B21A8; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-ADJUDICADO { background: #BBF7D0; color: #14532D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-PERDIDO { background: #FEE2E2; color: #7F1D1D; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.estado-DESCARTADO { background: #F1F5F9; color: #475569; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+
+/* ============ Macro Flow ============ */
+.macro-flow {
+    background: linear-gradient(135deg, var(--aidu-gray-50) 0%, white 100%);
+    padding: 16px 20px;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid var(--aidu-gray-200);
+    box-shadow: var(--shadow-sm);
+    animation: fadeIn 400ms ease-out;
+}
+.macro-step {
+    flex: 1;
+    padding: 10px 14px;
+    background: white;
+    border-radius: var(--radius-sm);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--aidu-gray-500);
+    border: 1px solid var(--aidu-gray-200);
+    transition: all var(--transition-base);
+}
+.macro-arrow {
+    color: var(--aidu-gray-300);
+    font-weight: 700;
+    font-size: 14px;
+    animation: pulse 2s infinite;
+}
+
+/* ============ Tarjetas (la estrella del show) ============ */
+.aidu-card {
+    background: white;
+    border: 1px solid var(--aidu-gray-200);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow-xs);
+    transition: all var(--transition-base);
+    animation: fadeInUp 400ms ease-out;
+    position: relative;
+    overflow: hidden;
+}
+.aidu-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent);
+    opacity: 0;
+    transition: opacity var(--transition-base);
+}
+.aidu-card:hover {
+    border-color: var(--aidu-blue-light);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+.aidu-card:hover::before {
+    opacity: 1;
+}
+.aidu-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--aidu-gray-900);
+    margin-bottom: 6px;
+    line-height: 1.3;
+}
+.aidu-card-meta {
+    font-size: 12px;
+    color: var(--aidu-gray-500);
+    line-height: 1.5;
+}
+.aidu-card-code {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 11px;
+    color: var(--aidu-gray-300);
+}
+
+/* ============ Sidebar premium ============ */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #FCFCFD 0%, #F5F7FA 100%);
+    border-right: 1px solid var(--aidu-gray-200);
+}
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 8px;
+}
+
+/* Items del radio en sidebar */
+[data-testid="stSidebar"] [data-baseweb="radio"] {
+    margin: 0 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] label {
+    display: flex;
+    align-items: center;
+    padding: 9px 14px !important;
+    border-radius: var(--radius-md);
+    margin: 2px 0 !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: var(--aidu-gray-700) !important;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border: 1px solid transparent;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] label:hover {
+    background: rgba(30, 64, 175, 0.06);
+    color: var(--aidu-blue) !important;
+    transform: translateX(2px);
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] label[aria-checked="true"] {
+    background: linear-gradient(90deg, rgba(30, 64, 175, 0.10) 0%, rgba(30, 64, 175, 0.04) 100%) !important;
+    border-left: 3px solid var(--aidu-blue) !important;
+    color: var(--aidu-blue) !important;
+    font-weight: 600 !important;
+    box-shadow: var(--shadow-xs);
+}
+/* Ocultar el círculo del radio */
+[data-testid="stSidebar"] [data-baseweb="radio"] [role="radio"] {
+    display: none !important;
+}
+
+.aidu-sidebar-header {
+    padding: 12px 8px 16px;
+    border-bottom: 1px solid var(--aidu-gray-200);
+    margin-bottom: 16px;
+}
+.aidu-sidebar-stat {
+    padding: 10px 14px;
+    background: white;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--aidu-gray-200);
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--aidu-gray-700);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all var(--transition-fast);
+}
+.aidu-sidebar-stat:hover {
+    border-color: var(--aidu-blue-light);
+    box-shadow: var(--shadow-xs);
+}
+.aidu-sidebar-stat strong {
+    color: var(--aidu-blue);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+/* ============ Hero sections ============ */
+.aidu-hero {
+    padding: 8px 0 16px;
+    border-bottom: 1px solid var(--aidu-gray-200);
+    margin-bottom: 24px;
+    animation: fadeInUp 300ms ease-out;
+}
+.aidu-hero h1 {
+    margin: 0 !important;
+    font-size: 28px !important;
+    color: var(--aidu-gray-900) !important;
+}
+.aidu-hero p {
+    margin: 4px 0 0 !important;
+    font-size: 14px;
+    color: var(--aidu-gray-500);
+}
+
+/* ============ Escenarios de precio ============ */
+.escenario-card {
+    padding: 18px;
+    border-radius: var(--radius-md);
+    text-align: center;
+    margin: 4px;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-base);
+}
+.escenario-card:hover { 
+    transform: translateY(-3px); 
+    box-shadow: var(--shadow-lg); 
+}
+.escenario-agresivo { background: linear-gradient(180deg, #FEE2E2 0%, white 60%); border-top: 3px solid var(--aidu-danger); }
+.escenario-competitivo { background: linear-gradient(180deg, #FED7AA 0%, white 60%); border-top: 3px solid var(--aidu-warning); }
+.escenario-premium { background: linear-gradient(180deg, #BBF7D0 0%, white 60%); border-top: 3px solid var(--aidu-success); }
+.esc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--aidu-gray-500); }
+.esc-precio { font-size: 26px; font-weight: 800; margin: 8px 0; color: var(--aidu-gray-900); letter-spacing: -0.5px; }
+.esc-margen { font-size: 12px; color: var(--aidu-gray-700); }
+.esc-prob { font-size: 16px; font-weight: 700; margin-top: 8px; }
+
+/* ============ Tablas ============ */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--aidu-gray-200);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-xs);
+}
+
+/* ============ Tabs internos (st.tabs) ============ */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px;
+    border-bottom: 1px solid var(--aidu-gray-200);
+}
+.stTabs [data-baseweb="tab"] {
+    padding: 8px 16px;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    font-weight: 500;
+    color: var(--aidu-gray-500);
+    transition: all var(--transition-fast);
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: var(--aidu-blue) !important;
+    font-weight: 600;
+}
+
+/* ============ Mejoras varias ============ */
+hr {
+    margin: 24px 0 !important;
+    border-color: var(--aidu-gray-200) !important;
+}
+
+/* Reducir padding superior global */
+.block-container {
+    padding-top: 1.5rem !important;
+    max-width: 1280px;
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-top-color: var(--aidu-blue) !important;
+}
+
+/* Alertas con estilo profesional */
+[data-testid="stAlert"] {
+    border-radius: var(--radius-md);
+    border-width: 1px;
+    box-shadow: var(--shadow-xs);
+    animation: slideInLeft 300ms ease-out;
+}
+
+/* Expander */
+[data-testid="stExpander"] {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--aidu-gray-200);
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow var(--transition-fast);
+}
+[data-testid="stExpander"]:hover {
+    box-shadow: var(--shadow-sm);
+}
+
+/* Progress bar */
+[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, var(--aidu-blue) 0%, var(--aidu-blue-light) 100%) !important;
+    border-radius: 999px;
+}
+
+/* Code blocks inline */
+code {
+    background: var(--aidu-gray-100) !important;
+    color: var(--aidu-blue-dark) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-size: 13px !important;
+    font-weight: 500;
+}
+
+/* Selectbox dropdown */
+[data-baseweb="select"] {
+    border-radius: var(--radius-sm) !important;
+}
+
+/* File uploader pro */
+[data-testid="stFileUploader"] section {
+    border: 2px dashed var(--aidu-gray-300) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--aidu-gray-50) !important;
+    transition: all var(--transition-base);
+}
+[data-testid="stFileUploader"] section:hover {
+    border-color: var(--aidu-blue) !important;
+    background: var(--aidu-blue-50) !important;
+}
+
+/* Selectbox: items pro */
+[role="listbox"] {
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-lg) !important;
+    border: 1px solid var(--aidu-gray-200) !important;
+}
+
+/* Links con estilo */
+a {
+    color: var(--aidu-blue) !important;
+    text-decoration: none !important;
+    transition: color var(--transition-fast);
+}
+a:hover {
+    color: var(--aidu-blue-light) !important;
 }
 
 /* ============ Aplicar Inter a toda la app ============ */
@@ -503,685 +1006,617 @@ def emoji_dias(d):
 # VISTA DE DETALLE DEL PROYECTO
 # ============================================================
 def render_detalle_proyecto(proyecto_id: int):
-    """Renderiza la vista completa de un proyecto"""
+    """
+    Vista de detalle completa y profesional de un proyecto.
+    Integra: info, IA bases, comparables, predicción descuento, equipo, paquete, bitácora.
+    """
     conn = get_connection()
     p = conn.execute("SELECT * FROM aidu_proyectos WHERE id = ?", (proyecto_id,)).fetchone()
     conn.close()
 
     if not p:
         st.error("Proyecto no encontrado")
-        if st.button("← Volver a cartera"):
+        if st.button("← Volver"):
             st.session_state.view_proyecto_id = None
             st.rerun()
         return
 
-    # Botón volver
-    col_back, col_estado = st.columns([1, 5])
-    if col_back.button("← Volver a cartera", use_container_width=True):
-        st.session_state.view_proyecto_id = None
-        st.rerun()
-
-    col_estado.markdown(
-        f"<div style='text-align:right; padding-top:6px;'>"
-        f"<span class='estado-{p['estado']}'>{p['estado']}</span></div>",
-        unsafe_allow_html=True
-    )
-
-    # Header del proyecto
-    st.markdown(f"### {p['nombre']}")
-    st.caption(
-        f"📋 `{p['codigo_externo']}` · 🏛️ {p['organismo']} · "
-        f"📍 {p['region']} · {p['cod_servicio_aidu']}"
-    )
-
-    # KPIs principales del proyecto
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Monto referencial", formato_clp(p["monto_referencial"]))
-    dias = calcular_dias_cierre(p["fecha_cierre"])
-    col2.metric("Días cierre", f"{emoji_dias(dias)} {dias if dias is not None else '-'}")
-    col3.metric("HH estimadas", f"{(p['hh_ignacio_estimado'] or 0) + (p['hh_jorella_estimado'] or 0)} h")
-    col4.metric("Categoría", p["cod_servicio_aidu"] or "-")
-
-    st.divider()
-
-    # Tabs internas del proyecto - vista completa
-    tab_info, tab_precal, tab_precios, tab_comparables, tab_equipo, tab_acciones, tab_bitacora = st.tabs([
-        "📋 Resumen",
-        "✅ Precalificación",
-        "💰 Inteligencia",
-        "📚 Comparables",
-        "👥 Equipo & HH",
-        "🎯 Acciones",
-        "📜 Bitácora",
-    ])
-
-    # ======================================
-    # TAB: INFORMACIÓN
-    # ======================================
-    with tab_info:
-        st.markdown("##### 📋 Descripción del proyecto")
-        st.info(p["descripcion"] or "Sin descripción registrada")
-
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("##### 👥 Equipo asignado AIDU")
-            st.markdown(f"""
-            - **Ignacio (Director Ejecutivo):** {p['hh_ignacio_estimado'] or 0} h
-            - **Jorella (Socia Operacional):** {p['hh_jorella_estimado'] or 0} h
-            - **Total:** {(p['hh_ignacio_estimado'] or 0) + (p['hh_jorella_estimado'] or 0)} h
-            """)
-
-        with col_b:
-            st.markdown("##### 📅 Fechas clave")
-            st.markdown(f"""
-            - **Publicación:** {p['fecha_publicacion'] or '-'}
-            - **Cierre:** {p['fecha_cierre'] or '-'}
-            - **Creación en sistema:** {p['fecha_creacion']}
-            """)
-
-        # Recomendación rápida
-        if dias is not None and dias <= 3:
-            st.error("🔴 **URGENTE**: Cierre en menos de 3 días")
-        elif dias is not None and dias <= 7:
-            st.warning("🟡 **Atención**: Cierre en menos de 7 días")
-        else:
-            st.success("🟢 **Plazo cómodo** para preparar la propuesta")
-
-    # ======================================
-    # TAB: PRECALIFICACIÓN
-    # ======================================
-    with tab_precal:
-        from app.core.precalificacion import (
-            inicializar_checklist, obtener_checklist, toggle_item_checklist,
-            progreso_checklist, registrar_evento
-        )
-        
-        # Inicializar checklist si no existe
-        inicializar_checklist(p["id"])
-        
-        prog = progreso_checklist(p["id"])
-        items = obtener_checklist(p["id"])
-        
-        # Header con progreso
-        col_h1, col_h2 = st.columns([3, 1])
-        with col_h1:
-            st.markdown("##### ✅ Checklist de precalificación")
-            st.caption("Requisitos típicos para licitaciones de consultoría municipal en Chile. Marca lo que ya tienes listo.")
-        with col_h2:
-            st.metric("Progreso", f"{prog['porcentaje']}%", f"{prog['completados']}/{prog['total']}")
-        
-        # Barra de progreso visual
-        st.progress(prog["porcentaje"] / 100, text=f"{prog['completados']} de {prog['total']} items completados")
-        
-        # Alerta si falta mucho
-        if prog["porcentaje"] < 30:
-            st.warning(f"⚠️ Quedan {prog['pendientes']} items por completar. Empieza por los del grupo **Proveedor** y **Equipo**.")
-        elif prog["porcentaje"] < 70:
-            st.info(f"📋 Buen avance. Concéntrate en completar **Propuesta** y **Anexos legales**.")
-        elif prog["porcentaje"] < 100:
-            st.success(f"🎯 Casi listo. Revisa **Garantías** y verifica cada documento antes de subir a MP.")
-        else:
-            st.success("🏆 Precalificación completa. Listo para postular.")
-        
-        st.divider()
-        
-        # Agrupar items por grupo
-        grupos = {}
-        for item in items:
-            g = item["grupo"]
-            if g not in grupos:
-                grupos[g] = []
-            grupos[g].append(item)
-        
-        # Mostrar cada grupo
-        emoji_grupo = {
-            "Proveedor": "🏢",
-            "Experiencia": "📊",
-            "Equipo": "👥",
-            "Propuesta": "📄",
-            "Garantías": "🛡️",
-            "Anexos": "📎",
-        }
-        
-        for grupo, lista_items in grupos.items():
-            n_done = sum(1 for i in lista_items if i["completado"])
-            emoji = emoji_grupo.get(grupo, "📌")
-            with st.expander(f"{emoji} **{grupo}** · {n_done}/{len(lista_items)}", expanded=(n_done < len(lista_items))):
-                for item in lista_items:
-                    completado_actual = bool(item["completado"])
-                    nuevo_estado = st.checkbox(
-                        item["texto"],
-                        value=completado_actual,
-                        key=f"chk_{item['id']}_{p['id']}",
-                        help=f"Requerido en estado: {item['requiere_estado']}"
-                    )
-                    if nuevo_estado != completado_actual:
-                        toggle_item_checklist(item["id"], nuevo_estado)
-                        accion = "Marcado ✓" if nuevo_estado else "Desmarcado"
-                        registrar_evento(p["id"], "checklist", f"{accion}: {item['texto']}")
-                        st.rerun()
-
-
-    # ======================================
-    # TAB: INTELIGENCIA DE PRECIOS
-    # ======================================
-    with tab_precios:
-        st.markdown("##### 💰 Análisis de Precios basado en Histórico Mercado Público")
-
-        with st.spinner("Calculando 3 escenarios..."):
-            esc = calcular_escenarios_precio(proyecto_id)
-
-        if "error" in esc:
-            st.error(esc["error"])
-        else:
-            # Stats de mercado
-            stats = esc["stats"]
-            n_total = stats["n_total"] or 0
-
-            if n_total == 0:
-                st.warning(
-                    f"⚠️ Sin datos históricos suficientes para {p['cod_servicio_aidu']}. "
-                    "Los escenarios usan estimaciones conservadoras. "
-                    "Ejecuta el backfill 24m para enriquecer los datos."
-                )
-            else:
-                st.caption(
-                    f"📊 Análisis basado en **{n_total} licitaciones similares** del histórico. "
-                    f"Descuento mediana del mercado: **{stats['descuento_mediana']:.1f}%**"
-                )
-
-            # Costo base AIDU
-            costo = esc["costo"]
-            with st.expander("⚙️ Costo Base AIDU (transparencia del cálculo)", expanded=False):
-                col_c1, col_c2 = st.columns(2)
-                col_c1.markdown(f"""
-                **Cálculo del costo:**
-                - HH × tarifa: {costo['hh_total']} h × ${costo['tarifa_hora_clp']:,.0f} = {formato_clp(costo['costo_hh'])}
-                - Viajes ({p['region']}): {formato_clp(costo['viajes'])}
-                - Subtotal: {formato_clp(costo['costo_hh'] + costo['viajes'])}
-                - Overhead 18%: {formato_clp(costo['overhead'])}
-                """)
-                col_c2.metric("**Costo total AIDU**", formato_clp(costo["costo_total"]))
-
-            st.markdown("##### 🎯 3 Escenarios de Precio")
-
-            col_a, col_b, col_c = st.columns(3)
-
-            with col_a:
-                a = esc["agresivo"]
-                color = "#15803D" if a["margen_pct"] >= 15 else "#D97706" if a["margen_pct"] >= 0 else "#DC2626"
-                st.markdown(f"""
-                <div class='escenario-card escenario-agresivo'>
-                    <div class='esc-label'>🥇 ENTRADA</div>
-                    <div style='font-weight: 700; font-size: 14px; margin: 8px 0;'>{a['estrategia']}</div>
-                    <div class='esc-precio' style='color: #DC2626;'>{formato_clp(a['precio'])}</div>
-                    <div class='esc-margen'>Descuento: {a['descuento_pct']}% · Margen: <strong style='color:{color}'>{a['margen_pct']:.1f}%</strong></div>
-                    <div class='esc-prob' style='color: #DC2626;'>{a['probabilidad']}% probabilidad</div>
-                    <div style='font-size: 11px; color: #64748B; margin-top: 8px;'>{a['descripcion']}</div>
+    p = dict(p)
+    
+    # Color del estado
+    color_estado_map = {
+        "PROSPECTO": ("#64748B", "#F1F5F9"),
+        "ESTUDIO": ("#0E7490", "#CFFAFE"),
+        "EN_PREPARACION": ("#1E40AF", "#DBEAFE"),
+        "LISTO_OFERTAR": ("#9A3412", "#FED7AA"),
+        "OFERTADO": ("#6B21A8", "#E9D5FF"),
+        "ADJUDICADO": ("#14532D", "#BBF7D0"),
+        "PERDIDO": ("#7F1D1D", "#FEE2E2"),
+        "DESCARTADO": ("#475569", "#F1F5F9"),
+    }
+    color, bg = color_estado_map.get(p["estado"], ("#64748B", "#F1F5F9"))
+    
+    # Días para cierre
+    dias_cierre = calcular_dias_cierre(p.get("fecha_cierre")) if p.get("fecha_cierre") else None
+    color_dias = "#DC2626" if dias_cierre is not None and dias_cierre <= 3 else "#D97706" if dias_cierre is not None and dias_cierre <= 7 else "#15803D"
+    
+    # ===== HEADER PROFESIONAL =====
+    col_back, col_acciones = st.columns([1, 4])
+    
+    with col_back:
+        if st.button("← Volver", use_container_width=True, key="back_detalle"):
+            st.session_state.view_proyecto_id = None
+            st.rerun()
+    
+    # URL Mercado Público
+    url_mp = f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={p['codigo_externo']}"
+    
+    with col_acciones:
+        st.markdown(f"""
+        <div style='display:flex; gap:8px; justify-content:flex-end;'>
+            <a href='{url_mp}' target='_blank' style='display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#1E40AF; color:white; border-radius:8px; text-decoration:none; font-weight:600; font-size:13px; box-shadow:0 1px 2px rgba(0,0,0,0.05);'>
+                🌐 Abrir en Mercado Público
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Header con todos los datos clave
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg, {bg} 0%, white 80%); padding:24px 28px; border-radius:14px; margin:16px 0 24px; border-left:5px solid {color}; box-shadow:0 4px 12px rgba(15,23,42,0.06);'>
+        <div style='display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;'>
+            <div style='flex:1;'>
+                <div style='display:flex; align-items:center; gap:10px; margin-bottom:8px;'>
+                    <span class='estado-{p["estado"]}'>{p["estado"]}</span>
+                    <span style='font-family:JetBrains Mono,monospace; font-size:12px; color:#64748B;'>{p["codigo_externo"]}</span>
                 </div>
-                """, unsafe_allow_html=True)
-                if st.button("Elegir Agresivo", key="elig_a", use_container_width=True):
-                    _set_escenario(proyecto_id, "agresivo", a["precio"], a["margen_pct"], a["probabilidad"])
-                    st.success("✓ Escenario agresivo seleccionado")
-
-            with col_b:
-                c = esc["competitivo"]
-                color = "#15803D" if c["margen_pct"] >= 15 else "#D97706" if c["margen_pct"] >= 0 else "#DC2626"
-                st.markdown(f"""
-                <div class='escenario-card escenario-competitivo'>
-                    <div class='esc-label'>⚡ ÓPTIMO ⭐</div>
-                    <div style='font-weight: 700; font-size: 14px; margin: 8px 0;'>{c['estrategia']}</div>
-                    <div class='esc-precio' style='color: #D97706;'>{formato_clp(c['precio'])}</div>
-                    <div class='esc-margen'>Descuento: {c['descuento_pct']}% · Margen: <strong style='color:{color}'>{c['margen_pct']:.1f}%</strong></div>
-                    <div class='esc-prob' style='color: #D97706;'>{c['probabilidad']}% probabilidad</div>
-                    <div style='font-size: 11px; color: #64748B; margin-top: 8px;'>{c['descripcion']}</div>
+                <div style='font-size:24px; font-weight:700; color:#0F172A; line-height:1.2; margin-bottom:6px;'>{p["nombre"]}</div>
+                <div style='font-size:13px; color:#64748B;'>
+                    🏛️ {p.get("organismo") or "—"} · 📍 {p.get("region") or "—"} · 🎯 {p.get("cod_servicio_aidu") or "Sin categoría"}
                 </div>
-                """, unsafe_allow_html=True)
-                if st.button("Elegir Competitivo", key="elig_c", use_container_width=True, type="primary"):
-                    _set_escenario(proyecto_id, "competitivo", c["precio"], c["margen_pct"], c["probabilidad"])
-                    st.success("✓ Escenario competitivo seleccionado")
-
-            with col_c:
-                pr = esc["premium"]
-                color = "#15803D" if pr["margen_pct"] >= 15 else "#D97706" if pr["margen_pct"] >= 0 else "#DC2626"
-                st.markdown(f"""
-                <div class='escenario-card escenario-premium'>
-                    <div class='esc-label'>💎 NICHO</div>
-                    <div style='font-weight: 700; font-size: 14px; margin: 8px 0;'>{pr['estrategia']}</div>
-                    <div class='esc-precio' style='color: #15803D;'>{formato_clp(pr['precio'])}</div>
-                    <div class='esc-margen'>Descuento: {pr['descuento_pct']}% · Margen: <strong style='color:{color}'>{pr['margen_pct']:.1f}%</strong></div>
-                    <div class='esc-prob' style='color: #15803D;'>{pr['probabilidad']}% probabilidad</div>
-                    <div style='font-size: 11px; color: #64748B; margin-top: 8px;'>{pr['descripcion']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button("Elegir Premium", key="elig_p", use_container_width=True):
-                    _set_escenario(proyecto_id, "premium", pr["precio"], pr["margen_pct"], pr["probabilidad"])
-                    st.success("✓ Escenario premium seleccionado")
-
-            # Recomendación honesta
-            st.markdown("---")
-            mejor = max(["agresivo", "competitivo", "premium"], key=lambda k: esc[k]["margen_pct"] * (esc[k]["probabilidad"] / 100))
-            st.info(
-                f"💡 **Recomendación AIDU:** según el balance margen × probabilidad, "
-                f"el escenario **{mejor}** ({formato_clp(esc[mejor]['precio'])}, "
-                f"{esc[mejor]['margen_pct']:.1f}% margen, {esc[mejor]['probabilidad']}% probabilidad) "
-                f"es el más conveniente."
-            )
-
-            # Si todos los márgenes son negativos, alerta
-            if all(esc[k]["margen_pct"] < 0 for k in ["agresivo", "competitivo", "premium"]):
-                st.error(
-                    "⚠️ **ALERTA:** Todos los escenarios muestran margen negativo. "
-                    "El costo AIDU excede los precios de mercado. "
-                    "Considera: (1) revisar HH estimadas, (2) NO postular, (3) renegociar alcance con organismo."
-                )
-
-            # Competidores recurrentes
-            if stats["competidores_recurrentes"]:
-                st.markdown("##### 🥇 Competidores recurrentes en esta categoría")
-                for comp in stats["competidores_recurrentes"]:
-                    st.markdown(f"- **{comp['nombre']}** · {comp['n_adj']} adjudicaciones")
-
-    # ======================================
-    # TAB: COMPARABLES
-    # ======================================
-    with tab_comparables:
-        from app.core.comparables import buscar_comparables_proyecto
-        from app.core.utils import formato_clp_corto, formato_porcentaje
+            </div>
+            <div style='text-align:right; min-width:200px;'>
+                <div style='font-size:12px; color:#64748B; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;'>Monto referencial</div>
+                <div style='font-size:32px; font-weight:800; color:#1E40AF; letter-spacing:-1px;'>{formato_clp(p.get("monto_referencial", 0))}</div>
+                {f'<div style="font-size:13px; font-weight:600; color:{color_dias}; margin-top:4px;">⏰ {dias_cierre} días para cerrar</div>' if dias_cierre is not None else ''}
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ===== ACCIONES DE ESTADO (cambio rápido entre fases) =====
+    flow_estados = [
+        ("PROSPECTO", "📂 Cartera"),
+        ("ESTUDIO", "🔬 Estudio"),
+        ("EN_PREPARACION", "🛠️ Preparación"),
+        ("LISTO_OFERTAR", "📝 Ofertar"),
+        ("OFERTADO", "📤 Subido a MP"),
+    ]
+    
+    estado_idx = next((i for i, (e, _) in enumerate(flow_estados) if e == p["estado"]), -1)
+    
+    if estado_idx >= 0 and estado_idx < len(flow_estados) - 1:
+        siguiente_estado, siguiente_label = flow_estados[estado_idx + 1]
+        col_avance1, col_avance2, col_avance3 = st.columns([2, 2, 1])
         
-        st.markdown(f"##### 📚 Inteligencia de mercado · categoría {p['cod_servicio_aidu']}")
-        st.caption("Análisis basado en licitaciones adjudicadas históricas en la misma categoría AIDU")
-        
-        with st.spinner("Buscando comparables..."):
-            data_comp = buscar_comparables_proyecto(p["id"], limit=20)
-        
-        if data_comp["total_encontrados"] == 0:
-            st.info(f"Sin comparables adjudicados para **{p['cod_servicio_aidu']}**. Ejecuta el backfill 24m desde Configuración para enriquecer datos.")
-        else:
-            # Stats panel
-            stats = data_comp["stats"]
-            
-            st.markdown("##### 📊 Estadísticas del mercado")
-            col_s1, col_s2, col_s3, col_s4 = st.columns(4)
-            col_s1.metric(
-                "Comparables",
-                data_comp["total_encontrados"],
-                help=f"Adjudicaciones históricas en {p['cod_servicio_aidu']}"
-            )
-            if stats.get("descuento_promedio") is not None:
-                col_s2.metric(
-                    "Descuento medio",
-                    f"{stats['descuento_promedio']}%",
-                    delta=f"min {stats.get('descuento_min', 0)}% / max {stats.get('descuento_max', 0)}%",
-                    delta_color="off",
-                    help="% típico de descuento sobre el referencial al adjudicar"
-                )
-            if stats.get("monto_adj_mediano"):
-                col_s3.metric(
-                    "Monto típico",
-                    formato_clp_corto(stats["monto_adj_mediano"]),
-                    help="Monto mediano adjudicado en esta categoría"
-                )
-            if stats.get("n_oferentes_promedio"):
-                col_s4.metric(
-                    "Oferentes promedio",
-                    f"{stats['n_oferentes_promedio']:.1f}",
-                    help="Promedio de oferentes que postulan"
-                )
-            
-            # Insight automático
-            if stats.get("descuento_promedio") is not None:
-                desc_prom = stats["descuento_promedio"]
-                if desc_prom < 5:
-                    st.success(f"💚 **Mercado sano**: descuentos promedio bajos ({desc_prom}%) indican poca presión competitiva")
-                elif desc_prom < 12:
-                    st.info(f"📊 **Mercado equilibrado**: descuentos promedio razonables ({desc_prom}%)")
-                elif desc_prom < 20:
-                    st.warning(f"⚠️ **Mercado competitivo**: descuentos altos ({desc_prom}%), evaluar diferenciación")
-                else:
-                    st.error(f"🔴 **Mercado muy competitivo**: descuentos {desc_prom}%, márgenes apretados")
-            
-            st.divider()
-            
-            # Layout en 2 columnas: mandantes y competencia
-            col_m, col_c = st.columns(2)
-            
-            with col_m:
-                st.markdown("##### 🏛️ Mandantes recurrentes")
-                if data_comp["mandantes_recurrentes"]:
-                    for i, m in enumerate(data_comp["mandantes_recurrentes"][:5], 1):
-                        st.markdown(
-                            f"<div style='padding:6px 10px; background:#F1F5F9; border-radius:6px; margin-bottom:4px; font-size:13px;'>"
-                            f"<strong>#{i}</strong> {m['nombre']} <span style='color:#64748B; float:right;'>{m['cantidad']} adj.</span>"
-                            f"</div>",
-                            unsafe_allow_html=True
-                        )
-                else:
-                    st.caption("Sin datos suficientes")
-            
-            with col_c:
-                st.markdown("##### 🥊 Competencia")
-                if data_comp["competencia"]:
-                    for i, c in enumerate(data_comp["competencia"][:5], 1):
-                        st.markdown(
-                            f"<div style='padding:6px 10px; background:#FEF3C7; border-radius:6px; margin-bottom:4px; font-size:13px;'>"
-                            f"<strong>#{i}</strong> {c['nombre']} <span style='color:#92400E; float:right;'>{c['adjudicaciones']} adj.</span>"
-                            f"</div>",
-                            unsafe_allow_html=True
-                        )
-                else:
-                    st.caption("Sin datos de proveedores ganadores")
-            
-            st.divider()
-            
-            # Listado detallado
-            with st.expander(f"📋 Ver listado detallado ({data_comp['total_encontrados']} licitaciones)", expanded=False):
-                for c in data_comp["comparables"]:
-                    with st.container(border=True):
-                        col1, col2, col3 = st.columns([4, 2, 2])
-                        col1.markdown(f"""
-                        **{c['nombre']}**  
-                        <span style='color:#64748B; font-size:12px;'>
-                        🏛️ {c['organismo'] or '—'} · 📍 {c['region'] or '—'}
-                        </span><br>
-                        <span style='color:#94A3B8; font-family:monospace; font-size:11px;'>{c['codigo_externo']}</span>
-                        """, unsafe_allow_html=True)
-                        col2.metric("Referencial", formato_clp_corto(c["monto_referencial"]))
-                        if c.get("descuento_pct") is not None:
-                            col3.metric(
-                                "Adjudicado",
-                                formato_clp_corto(c["monto_adjudicado"]),
-                                f"{c['descuento_pct']:.1f}%",
-                                delta_color="inverse"
-                            )
-                        else:
-                            col3.metric("Adjudicado", formato_clp_corto(c["monto_adjudicado"]))
-
-    # ======================================
-    # TAB: EQUIPO & HH
-    # ======================================
-    with tab_equipo:
-        st.markdown("##### 👥 Asignación de Equipo y Horas Hombre")
-        st.caption("Estima HH por persona y calcula costo base AIDU. Tarifa: 2 UF/h ≈ CLP 78.000/h")
-        
-        TARIFA_HORA_CLP = 78_000
-        
-        col_e1, col_e2 = st.columns(2)
-        with col_e1:
-            st.markdown("**Ignacio (Director Ejecutivo · Ing. Civil)**")
-            hh_ig = st.number_input(
-                "HH Ignacio",
-                min_value=0, max_value=500,
-                value=int(p["hh_ignacio_estimado"] or 0),
-                step=5,
-                key=f"hh_ig_{p['id']}"
-            )
-            st.caption(f"Costo: {formato_clp(hh_ig * TARIFA_HORA_CLP)}")
-        
-        with col_e2:
-            st.markdown("**Jorella (Socia Operacional · Ing. Comercial)**")
-            hh_jo = st.number_input(
-                "HH Jorella",
-                min_value=0, max_value=500,
-                value=int(p["hh_jorella_estimado"] or 0),
-                step=5,
-                key=f"hh_jo_{p['id']}"
-            )
-            st.caption(f"Costo: {formato_clp(hh_jo * TARIFA_HORA_CLP)}")
-        
-        # Botón guardar HH
-        if st.button("💾 Guardar HH estimadas", key=f"save_hh_{p['id']}", type="primary"):
-            from app.core.precalificacion import registrar_evento
-            conn_save = get_connection()
-            try:
-                conn_save.execute("""
-                    UPDATE aidu_proyectos 
-                    SET hh_ignacio_estimado = ?, hh_jorella_estimado = ?, fecha_modificacion = datetime('now')
-                    WHERE id = ?
-                """, (hh_ig, hh_jo, p["id"]))
-                conn_save.commit()
-                registrar_evento(p["id"], "estimacion", f"HH actualizadas: Ignacio {hh_ig}h, Jorella {hh_jo}h")
-                st.success("✅ HH guardadas")
+        with col_avance1:
+            if st.button(f"➡️ Avanzar a {siguiente_label}", type="primary", use_container_width=True, key="avanzar"):
+                _cambiar_estado(proyecto_id, siguiente_estado)
+                st.success(f"✅ Avanzado a {siguiente_label}")
                 st.rerun()
-            finally:
-                conn_save.close()
         
-        st.divider()
-        
-        # Resumen de costos
-        total_hh = hh_ig + hh_jo
-        costo_base = total_hh * TARIFA_HORA_CLP
-        overhead_pct = 18
-        costo_overhead = round(costo_base * overhead_pct / 100)
-        costo_total = costo_base + costo_overhead
-        
-        st.markdown("##### 💰 Costo base AIDU")
-        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-        col_c1.metric("Total HH", f"{total_hh} h")
-        col_c2.metric("Costo HH", formato_clp(costo_base))
-        col_c3.metric(f"Overhead ({overhead_pct}%)", formato_clp(costo_overhead))
-        col_c4.metric("Costo total", formato_clp(costo_total))
-        
-        # Comparar con monto referencial
-        if p["monto_referencial"] and costo_total > 0:
-            margen_max = ((p["monto_referencial"] - costo_total) / p["monto_referencial"]) * 100
-            if margen_max > 30:
-                st.success(f"💚 Margen máximo posible: **{margen_max:.1f}%** sobre referencial. Espacio para descuento competitivo.")
-            elif margen_max > 15:
-                st.info(f"📊 Margen máximo posible: **{margen_max:.1f}%** sobre referencial. Margen razonable.")
-            elif margen_max > 0:
-                st.warning(f"⚠️ Margen máximo posible: **{margen_max:.1f}%** sobre referencial. Margen ajustado, evaluar.")
-            else:
-                st.error(f"🔴 Pérdida de **{margen_max:.1f}%** al precio referencial. **NO postular** sin redefinir alcance.")
-
-
-    # ======================================
-    # TAB: ACCIONES
-    # ======================================
-    with tab_acciones:
-        st.markdown("##### 🎯 Decisiones de flujo")
-
-        col_a, col_b = st.columns(2)
-
-        with col_a:
-            st.markdown(f"**Estado actual:** `{p['estado']}`")
-            st.caption("Cambia el estado del proyecto siguiendo el macro de 5 pasos")
-
-            if p["estado"] == "PROSPECTO":
-                if st.button("🔬 Pasar a ESTUDIO", use_container_width=True, type="primary"):
-                    _cambiar_estado(proyecto_id, "ESTUDIO")
-                    st.success("✓ Estado actualizado")
+        with col_avance2:
+            if estado_idx > 0:
+                anterior_estado, anterior_label = flow_estados[estado_idx - 1]
+                if st.button(f"⬅️ Retroceder a {anterior_label}", use_container_width=True, key="retroceder"):
+                    _cambiar_estado(proyecto_id, anterior_estado)
                     st.rerun()
-
-            elif p["estado"] == "ESTUDIO":
-                if st.button("📝 Pasar a EN PREPARACIÓN", use_container_width=True, type="primary"):
-                    _cambiar_estado(proyecto_id, "EN_PREPARACION")
-                    st.success("✓ Estado actualizado")
-                    st.rerun()
-
-            elif p["estado"] == "EN_PREPARACION":
-                if st.button("🚀 Pasar a LISTO_OFERTAR", use_container_width=True, type="primary"):
-                    _cambiar_estado(proyecto_id, "LISTO_OFERTAR", paquete=True)
-                    st.success("✓ Paquete marcado como listo")
-                    st.rerun()
-
-            elif p["estado"] == "LISTO_OFERTAR":
-                if st.button("📤 Marcar como OFERTADA", use_container_width=True, type="primary"):
-                    _cambiar_estado(proyecto_id, "OFERTADA")
-                    st.success("✓ Marcada como ofertada en MP")
-                    st.rerun()
-
-            elif p["estado"] == "OFERTADA":
-                col_x, col_y = st.columns(2)
-                if col_x.button("🏆 ADJUDICADA", use_container_width=True):
-                    _cambiar_estado(proyecto_id, "ADJUDICADA")
-                    st.success("¡Felicitaciones!")
-                    st.rerun()
-                if col_y.button("❌ RECHAZADA", use_container_width=True):
-                    _cambiar_estado(proyecto_id, "RECHAZADA")
-                    st.rerun()
-
-        with col_b:
-            st.markdown("**📦 Decisiones de oferta**")
-            if p["escenario_elegido"]:
-                st.success(f"✓ Escenario: **{p['escenario_elegido']}**")
-                st.metric("Precio ofertado", formato_clp(p["precio_ofertado"]))
-                if p["margen_pct"]:
-                    st.caption(f"Margen: {p['margen_pct']:.1f}%")
-            else:
-                st.info("Aún no se ha elegido escenario de precio. Ve a la pestaña 💰 Inteligencia de Precios.")
-
-        st.divider()
-
-        # ============ GENERACIÓN DE PAQUETE ============
-        st.markdown("##### 📦 Generación de paquete de postulación")
-
-        col_g, col_v = st.columns(2)
-
-        with col_g:
-            if st.button("📄 Generar Word + Excel", use_container_width=True, type="primary"):
-                with st.spinner("Generando documentos..."):
-                    try:
-                        from app.core.generador_paquete import generar_paquete_completo
-                        resultado = generar_paquete_completo(proyecto_id)
-                        st.success(f"✅ {resultado['n_archivos']} archivos generados")
-                        st.session_state[f'pkg_{proyecto_id}'] = resultado
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-        with col_v:
-            pkg = st.session_state.get(f'pkg_{proyecto_id}')
-            if pkg:
-                st.success(f"📂 {pkg['carpeta'].name}")
-                for nombre, path in pkg['archivos'].items():
-                    with open(path, 'rb') as f:
-                        st.download_button(
-                            f"⬇️ {path.name}",
-                            data=f.read(),
-                            file_name=path.name,
-                            use_container_width=True,
-                            key=f"dl_{proyecto_id}_{nombre}"
-                        )
-
-        st.divider()
-
-        # ============ ANÁLISIS IA ============
-        st.markdown("##### 🤖 Análisis estratégico con Claude")
-
-        col_ia, col_resultado = st.columns([1, 2])
-
-        with col_ia:
-            if st.button("🧠 Analizar con IA", use_container_width=True):
-                with st.spinner("Claude analizando..."):
-                    try:
-                        from app.core.analisis_ia import analizar_proyecto_con_ia
-                        resultado_ia = analizar_proyecto_con_ia(proyecto_id)
-                        st.session_state[f'ia_{proyecto_id}'] = resultado_ia
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-            # Histórico de análisis previos
-            conn = get_connection()
-            chats = conn.execute(
-                "SELECT * FROM aidu_chat_ia WHERE proyecto_id=? AND rol='assistant' ORDER BY id DESC LIMIT 1",
-                (proyecto_id,)
-            ).fetchall()
-            conn.close()
-
-        with col_resultado:
-            ia = st.session_state.get(f'ia_{proyecto_id}')
-            if ia:
-                if ia.get('error'):
-                    st.error(f"⚠️ {ia['error']}")
-                    from config.settings import IS_STREAMLIT_CLOUD as _IS_CLOUD
-                    if _IS_CLOUD:
-                        st.caption("Configura `ANTHROPIC_API_KEY` en Streamlit Cloud → Manage app → Settings → Secrets")
-                    else:
-                        st.caption("Configura tu API key en `~/AIDU_Op/config/secrets.env`")
-                else:
-                    st.markdown(ia['analisis'])
-                    st.caption(
-                        f"💰 ~${ia.get('costo_estimado_usd', 0):.4f} USD · "
-                        f"{ia.get('tokens_in', 0) + ia.get('tokens_out', 0)} tokens"
-                    )
-            elif chats:
-                st.markdown("**Análisis previo:**")
-                st.markdown(chats[0]['contenido'])
-            else:
-                st.info("Click en 🧠 Analizar con IA para obtener análisis estratégico de Claude")
-
-        st.divider()
-
-    # ======================================
-    # TAB: BITÁCORA
-    # ======================================
-    with tab_bitacora:
-        from app.core.precalificacion import obtener_bitacora, registrar_evento
         
-        st.markdown("##### 📜 Historial cronológico del proyecto")
-        st.caption("Toda la trazabilidad: cambios de estado, decisiones, análisis IA, checklist. Útil para auditoría.")
+        with col_avance3:
+            if st.button("❌ Descartar", use_container_width=True, key="descartar"):
+                _cambiar_estado(proyecto_id, "DESCARTADO")
+                st.rerun()
+    
+    # ===== TABS DE LA FICHA =====
+    t_resumen, t_ia, t_precios, t_comparables, t_check, t_equipo, t_paquete, t_bitacora = st.tabs([
+        "📋 Resumen",
+        "🤖 Análisis IA",
+        "💰 Inteligencia precios",
+        "📚 Comparables",
+        "✅ Precalificación",
+        "👥 Equipo & HH",
+        "📦 Paquete",
+        "📝 Bitácora",
+    ])
+    
+    # ============ TAB 1: RESUMEN ============
+    with t_resumen:
+        col1, col2 = st.columns([2, 1])
         
-        # Agregar nota manual
-        with st.expander("➕ Agregar nota manual", expanded=False):
-            nueva_nota = st.text_area(
-                "Nota",
-                placeholder="Ej: Llamé a la municipalidad, confirmaron que aceptan ofertas digitales...",
-                key=f"nota_{p['id']}",
-                height=80
-            )
-            if st.button("💾 Guardar nota", key=f"save_nota_{p['id']}"):
-                if nueva_nota.strip():
-                    registrar_evento(p["id"], "nota", nueva_nota.strip())
-                    st.success("✅ Nota guardada")
-                    st.rerun()
-                else:
-                    st.warning("La nota no puede estar vacía")
-        
-        st.divider()
-        
-        eventos = obtener_bitacora(p["id"], limit=200)
-        
-        if not eventos:
-            st.info("📭 Sin eventos registrados aún. Las acciones que tomes en el sistema quedarán automáticamente registradas aquí.")
-        else:
-            # Iconos por tipo
-            iconos = {
-                "estado_cambio": "🔄",
-                "paquete": "📦",
-                "ia": "🤖",
-                "nota": "📝",
-                "checklist": "✅",
-                "estimacion": "⏱️",
-                "sistema": "⚙️",
-            }
+        with col1:
+            st.markdown("##### 📌 Información general")
+            st.markdown(f"""
+            <div style='background:white; padding:16px 20px; border:1px solid #E2E8F0; border-radius:10px;'>
+                <table style='width:100%; font-size:13px;'>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Código MP</td><td style='font-family:JetBrains Mono,monospace; font-weight:600;'>{p["codigo_externo"]}</td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Mandante</td><td style='font-weight:500;'>{p.get("organismo") or "—"}</td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Región</td><td>{p.get("region") or "—"}</td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Categoría AIDU</td><td>{p.get("cod_servicio_aidu") or "—"}</td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Estado actual</td><td><span class='estado-{p["estado"]}'>{p["estado"]}</span></td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Fecha publicación</td><td>{p.get("fecha_publicacion") or "—"}</td></tr>
+                    <tr><td style='color:#64748B; padding:6px 0;'>Fecha cierre</td><td><strong style='color:{color_dias};'>{p.get("fecha_cierre") or "—"} {f"({dias_cierre}d)" if dias_cierre is not None else ""}</strong></td></tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
             
-            colores = {
-                "estado_cambio": "#1E40AF",
-                "paquete": "#15803D",
-                "ia": "#7C3AED",
-                "nota": "#0891B2",
-                "checklist": "#059669",
-                "estimacion": "#D97706",
-                "sistema": "#64748B",
-            }
+            if p.get("descripcion"):
+                st.markdown("##### 📄 Descripción")
+                st.markdown(f"<div style='background:#F8FAFC; padding:14px 18px; border-radius:8px; font-size:13px; color:#334155; line-height:1.6;'>{p['descripcion']}</div>", unsafe_allow_html=True)
             
-            st.caption(f"**{len(eventos)} eventos** · más reciente arriba")
+            if p.get("notas"):
+                st.markdown("##### 🗒️ Notas")
+                st.markdown(f"<div style='background:#FEF3C7; padding:14px 18px; border-radius:8px; font-size:13px; color:#78350F; line-height:1.6; white-space:pre-wrap;'>{p['notas']}</div>", unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("##### 💰 Resumen económico")
             
-            for ev in eventos:
-                icono = iconos.get(ev["tipo"], "📌")
-                color = colores.get(ev["tipo"], "#64748B")
-                fecha = ev["fecha"][:16] if ev["fecha"] else "-"
+            try:
+                from app.core.configuracion import obtener_config
+                cfg = obtener_config()
+                tarifa = cfg.tarifa_hora_clp
+                overhead = cfg.overhead_pct
+            except Exception:
+                tarifa = 78000
+                overhead = 18
+            
+            costo_hora = int(tarifa * (1 + overhead / 100))
+            
+            monto_ref = p.get("monto_referencial", 0) or 0
+            sweet_min = 3_000_000
+            sweet_max = 15_000_000
+            
+            if monto_ref < sweet_min:
+                zona = ("⚠️ Por debajo del sweet spot", "#D97706")
+            elif monto_ref > sweet_max:
+                zona = ("⚠️ Por encima del sweet spot", "#D97706")
+            else:
+                zona = ("✅ Dentro del sweet spot", "#15803D")
+            
+            st.markdown(f"""
+            <div style='background:white; padding:18px; border:1px solid #E2E8F0; border-radius:10px;'>
+                <div style='font-size:11px; color:#64748B; text-transform:uppercase; font-weight:600; letter-spacing:0.5px;'>Monto referencial</div>
+                <div style='font-size:26px; font-weight:800; color:#1E40AF; margin:4px 0 8px;'>{formato_clp(monto_ref)}</div>
+                <div style='font-size:11px; font-weight:600; color:{zona[1]}; padding:4px 8px; background:{zona[1]}15; border-radius:4px; display:inline-block; margin-bottom:14px;'>{zona[0]}</div>
+                
+                <div style='border-top:1px solid #F1F5F9; padding-top:12px; margin-top:8px;'>
+                    <div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>
+                        <span>Tarifa hora</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(tarifa)}</span>
+                    </div>
+                    <div style='display:flex; justify-content:space-between; font-size:12px; color:#64748B; padding:4px 0;'>
+                        <span>Costo c/overhead</span><span style='font-weight:600; color:#0F172A;'>{formato_clp(costo_hora)}</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Predicción descuento rápida
+            try:
+                from app.core.inteligencia_avanzada import predecir_descuento_optimo
+                pred = predecir_descuento_optimo(
+                    p.get("cod_servicio_aidu") or "",
+                    p.get("organismo"),
+                    p.get("monto_referencial")
+                )
+                
+                color_p = "#15803D" if pred["confianza"] >= 0.6 else "#D97706"
                 
                 st.markdown(f"""
-                <div style='display:flex; gap:10px; padding:8px 12px; border-left:3px solid {color}; background:#F8FAFC; margin-bottom:4px; border-radius:4px;'>
-                    <div style='font-size:16px;'>{icono}</div>
-                    <div style='flex:1;'>
-                        <div style='font-size:13px; color:#1E293B;'>{ev["texto"]}</div>
-                        <div style='font-size:11px; color:#94A3B8; margin-top:2px;'>
-                            <span style='font-family:monospace;'>{fecha}</span> · 
-                            <span style='color:{color};'>{ev["tipo"]}</span>
+                <div style='background:linear-gradient(135deg, {color_p}10 0%, white 80%); padding:16px; border:1px solid #E2E8F0; border-left:3px solid {color_p}; border-radius:10px; margin-top:12px;'>
+                    <div style='font-size:11px; color:{color_p}; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;'>🎯 Descuento recomendado</div>
+                    <div style='font-size:32px; font-weight:800; color:{color_p}; line-height:1; margin:6px 0;'>{pred['descuento_recomendado_pct']}%</div>
+                    <div style='font-size:11px; color:#64748B;'>Banda: {pred['descuento_minimo_pct']}% – {pred['descuento_maximo_pct']}%</div>
+                    <div style='font-size:11px; color:#64748B; margin-top:6px;'>Confianza: <strong style='color:{color_p};'>{pred['confianza']*100:.0f}%</strong></div>
+                </div>
+                """, unsafe_allow_html=True)
+            except Exception:
+                pass
+    
+    # ============ TAB 2: ANÁLISIS IA ============
+    with t_ia:
+        st.markdown("##### 🤖 Análisis IA de bases técnicas")
+        st.caption("Sube el PDF de las bases y Claude extraerá requisitos, plazos, riesgos y recomendación")
+        
+        try:
+            from app.core.analisis_bases import obtener_ultimo_analisis, analizar_pdf_bases
+            
+            ultimo = obtener_ultimo_analisis(p["codigo_externo"])
+            
+            if ultimo:
+                st.success(f"📦 Análisis previo del {ultimo['fecha_analisis']} · Costo: ${ultimo['costo_usd']:.4f} USD")
+                
+                resultado = ultimo["resultado"]
+                rec = resultado.get("recomendacion", {})
+                postular = rec.get("postular", "incierto")
+                color_r = "#15803D" if postular == "si" else "#DC2626" if postular == "no" else "#D97706"
+                label_r = "✅ POSTULAR" if postular == "si" else "❌ NO POSTULAR" if postular == "no" else "⚠️ CON RESERVAS"
+                
+                st.markdown(f"""
+                <div style='padding:20px; background:linear-gradient(135deg, {color_r}15 0%, white 70%); border-left:5px solid {color_r}; border-radius:12px; margin:16px 0;'>
+                    <div style='display:flex; justify-content:space-between; align-items:center;'>
+                        <div style='font-size:22px; font-weight:800; color:{color_r};'>{label_r}</div>
+                        <div style='text-align:right;'>
+                            <div style='font-size:11px; color:#64748B;'>Confianza Claude</div>
+                            <div style='font-size:24px; font-weight:800; color:{color_r};'>{rec.get("confianza", 0)}%</div>
                         </div>
                     </div>
+                    <div style='font-size:14px; color:#334155; margin-top:10px; line-height:1.6;'>{resultado.get("resumen_ejecutivo", "")}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Razones
+                razones = rec.get("razones_principales", [])
+                if razones:
+                    cols_r = st.columns(min(len(razones), 3))
+                    for i, razon in enumerate(razones):
+                        cols_r[i % 3].markdown(f"""
+                        <div style='padding:12px; background:white; border:1px solid #E2E8F0; border-radius:8px; height:100%;'>
+                            <div style='font-size:11px; color:#64748B; font-weight:600;'>RAZÓN {i+1}</div>
+                            <div style='font-size:13px; color:#0F172A; margin-top:4px;'>{razon}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # Resumen requisitos
+                requisitos = resultado.get("requisitos_eliminatorios", [])
+                if requisitos:
+                    n_si = sum(1 for r in requisitos if r.get("puede_cumplir") == "si")
+                    n_no = sum(1 for r in requisitos if r.get("puede_cumplir") == "no")
+                    n_inc = len(requisitos) - n_si - n_no
+                    
+                    st.markdown("###### Requisitos eliminatorios")
+                    rc1, rc2, rc3 = st.columns(3)
+                    rc1.metric("✅ Cumplibles", n_si)
+                    rc2.metric("❌ No cumplibles", n_no)
+                    rc3.metric("⚠️ Inciertos", n_inc)
+                    
+                    with st.expander("Ver detalle de requisitos"):
+                        for req in requisitos:
+                            puede = req.get("puede_cumplir", "incierto")
+                            icon = "✅" if puede == "si" else "❌" if puede == "no" else "⚠️"
+                            st.markdown(f"**{icon} {req.get('requisito', '—')}** — {req.get('comentario', '')}")
+                
+                col_r1, col_r2 = st.columns(2)
+                with col_r1:
+                    if st.button("🔄 Re-analizar (nuevo PDF)", use_container_width=True):
+                        st.session_state["ia_reupload"] = True
+                with col_r2:
+                    if st.button("📊 Ver análisis completo", use_container_width=True):
+                        st.session_state["ia_proyecto_pre"] = p["codigo_externo"]
+                        st.session_state["nav_principal"] = "🤖 Análisis IA"
+                        st.session_state.view_proyecto_id = None
+                        st.rerun()
+            
+            if not ultimo or st.session_state.get("ia_reupload"):
+                st.info("Aún no se ha analizado las bases técnicas de este proyecto")
+                
+                archivo = st.file_uploader(
+                    "📄 Sube el PDF de las bases técnicas",
+                    type=["pdf"],
+                    key=f"upload_ia_{proyecto_id}"
+                )
+                
+                if archivo and st.button("🚀 Analizar con Claude", type="primary", use_container_width=True, key="run_ia"):
+                    with st.spinner("🤖 Claude está leyendo las bases..."):
+                        pdf_bytes = archivo.read()
+                        resultado = analizar_pdf_bases(
+                            pdf_bytes,
+                            codigo_licitacion=p["codigo_externo"],
+                            proyecto_id=proyecto_id,
+                            forzar_reanalisis=True
+                        )
+                    
+                    if resultado["ok"]:
+                        st.success(f"✅ Análisis completado · ${resultado['meta']['costo_usd']:.4f} USD")
+                        st.session_state["ia_reupload"] = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {resultado.get('error')}")
+        except Exception as e:
+            st.warning(f"⚠️ Módulo IA no disponible: {e}")
+    
+    # ============ TAB 3: INTELIGENCIA PRECIOS ============
+    with t_precios:
+        st.markdown("##### 💰 Inteligencia de precios y márgenes")
+        
+        try:
+            from app.core.inteligencia_avanzada import predecir_descuento_optimo
+            
+            pred = predecir_descuento_optimo(
+                p.get("cod_servicio_aidu") or "",
+                p.get("organismo"),
+                p.get("monto_referencial")
+            )
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("🎯 Descuento óptimo", f"{pred['descuento_recomendado_pct']}%", help=pred["razon"])
+            col2.metric("📉 Mínimo seguro", f"{pred['descuento_minimo_pct']}%")
+            col3.metric("📈 Máximo arriesgado", f"{pred['descuento_maximo_pct']}%")
+            
+            st.caption(f"💡 {pred['razon']} · Confianza: {pred['confianza']*100:.0f}%")
+            
+            # Histórico mandante
+            if pred.get("historico_mandante"):
+                hm = pred["historico_mandante"]
+                st.markdown("###### 🏛️ Histórico con este mandante")
+                cm1, cm2, cm3 = st.columns(3)
+                cm1.metric("Proyectos previos", hm["n_proyectos"])
+                cm2.metric("Descuento promedio", f"{hm['descuento_promedio_pct']}%")
+                cm3.metric("Rango histórico", f"{hm['descuento_min_pct']}% – {hm['descuento_max_pct']}%")
+            
+            # Escenarios calculados
+            try:
+                escenarios = calcular_escenarios_precio(proyecto_id)
+                
+                if escenarios.get("ok"):
+                    st.markdown("###### 📊 Escenarios de precio")
+                    
+                    cols = st.columns(3)
+                    for i, (key, label, clase) in enumerate([
+                        ("agresivo", "Agresivo", "agresivo"),
+                        ("competitivo", "Competitivo", "competitivo"),
+                        ("premium", "Premium", "premium"),
+                    ]):
+                        e = escenarios.get(key, {})
+                        cols[i].markdown(f"""
+                        <div class='escenario-card escenario-{clase}'>
+                            <div class='esc-label'>{label}</div>
+                            <div class='esc-precio'>{formato_clp(e.get("precio", 0))}</div>
+                            <div class='esc-margen'>Margen: {e.get("margen_pct", 0):.1f}%</div>
+                            <div class='esc-prob'>Prob: {e.get("probabilidad", 0)}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            except Exception:
+                pass
+        except Exception as e:
+            st.info("La inteligencia de precios requiere proyectos con histórico para predecir bien")
+    
+    # ============ TAB 4: COMPARABLES ============
+    with t_comparables:
+        st.markdown("##### 📚 Licitaciones similares en el histórico")
+        
+        try:
+            from app.core.comparables import buscar_comparables
+            
+            comp = buscar_comparables(
+                cod_servicio_aidu=p.get("cod_servicio_aidu"),
+                organismo=p.get("organismo"),
+                limit=10
+            )
+            
+            if comp.get("comparables"):
+                stats = comp.get("stats", {})
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Comparables", comp["total_encontrados"])
+                col2.metric("Descuento mediana", f"{stats.get('descuento_mediana', 0):.1f}%")
+                col3.metric("Adjudicaciones", stats.get("n_adjudicadas", 0))
+                
+                st.markdown("###### 📋 Top 10")
+                for c in comp["comparables"][:10]:
+                    desc = c.get("descuento_pct")
+                    desc_str = f"Δ {desc:+.1f}%" if desc is not None else ""
+                    st.markdown(f"""
+                    <div class='aidu-card' style='padding:12px 16px;'>
+                        <div style='display:flex; justify-content:space-between; align-items:start;'>
+                            <div style='flex:1;'>
+                                <div class='aidu-card-title'>{c["nombre"]}</div>
+                                <div class='aidu-card-meta'>🏛️ {c.get("organismo") or "—"} · {formato_clp(c.get("monto_adjudicado", 0))} · {desc_str}</div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sin comparables en el histórico para este perfil")
+        except Exception:
+            st.info("Comparables no disponibles")
+    
+    # ============ TAB 5: PRECALIFICACIÓN ============
+    with t_check:
+        st.markdown("##### ✅ Checklist de precalificación")
+        st.caption("Verifica todos los requisitos antes de avanzar a Ofertar")
+        
+        try:
+            from app.core.precalificacion import obtener_checklist, actualizar_item_checklist, ITEMS_CHECKLIST_DEFAULT
+            
+            checklist = obtener_checklist(proyecto_id)
+            
+            if not checklist:
+                st.info("Generando checklist inicial...")
+                # Inicializar checklist desde default
+                conn = get_connection()
+                for item in ITEMS_CHECKLIST_DEFAULT:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO proy_checklist (proyecto_id, item_id, descripcion, estado, comentario)
+                        VALUES (?, ?, ?, 'PENDIENTE', '')
+                    """, (proyecto_id, item["id"], item["descripcion"]))
+                conn.commit()
+                conn.close()
+                st.rerun()
+            
+            n_ok = sum(1 for it in checklist if it["estado"] == "OK")
+            n_falta = sum(1 for it in checklist if it["estado"] == "FALTA")
+            n_pend = sum(1 for it in checklist if it["estado"] == "PENDIENTE")
+            
+            cc1, cc2, cc3, cc4 = st.columns(4)
+            cc1.metric("✅ OK", n_ok)
+            cc2.metric("❌ Falta", n_falta)
+            cc3.metric("⏳ Pendiente", n_pend)
+            cc4.metric("Total", len(checklist))
+            
+            # Progreso visual
+            progreso_pct = int((n_ok / len(checklist)) * 100) if checklist else 0
+            st.progress(progreso_pct / 100, text=f"Progreso: {progreso_pct}%")
+            
+            for it in checklist[:20]:
+                color_icon = "#15803D" if it["estado"] == "OK" else "#DC2626" if it["estado"] == "FALTA" else "#94A3B8"
+                icon = "✅" if it["estado"] == "OK" else "❌" if it["estado"] == "FALTA" else "⏳"
+                
+                col_i, col_act = st.columns([4, 1])
+                col_i.markdown(f"""
+                <div style='padding:8px 12px; background:white; border:1px solid #E2E8F0; border-radius:6px; margin-bottom:4px;'>
+                    <div style='display:flex; justify-content:space-between; align-items:center;'>
+                        <span style='font-size:13px;'>{icon} {it["descripcion"]}</span>
+                        <span style='font-size:10px; color:{color_icon}; font-weight:700;'>{it["estado"]}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with col_act:
+                    nuevo = st.selectbox(
+                        "estado",
+                        ["PENDIENTE", "OK", "FALTA", "NA"],
+                        index=["PENDIENTE", "OK", "FALTA", "NA"].index(it["estado"]) if it["estado"] in ["PENDIENTE", "OK", "FALTA", "NA"] else 0,
+                        key=f"check_{it['item_id']}",
+                        label_visibility="collapsed"
+                    )
+                    if nuevo != it["estado"]:
+                        actualizar_item_checklist(proyecto_id, it["item_id"], nuevo)
+                        st.rerun()
+        except Exception as e:
+            st.info(f"Checklist no disponible: {e}")
+    
+    # ============ TAB 6: EQUIPO & HH ============
+    with t_equipo:
+        st.markdown("##### 👥 Estimación de equipo y horas hombre")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("###### Estimación")
+            hh_ig_est = st.number_input("HH Ignacio (estimadas)", value=p.get("hh_ignacio_estimado") or 40, min_value=0, key="hh_ig_est")
+            hh_jo_est = st.number_input("HH Jorella (estimadas)", value=p.get("hh_jorella_estimado") or 20, min_value=0, key="hh_jo_est")
+        
+        with col2:
+            st.markdown("###### Real (a la fecha)")
+            hh_ig_real = st.number_input("HH Ignacio (real)", value=p.get("hh_ignacio_real") or 0, min_value=0, key="hh_ig_real")
+            hh_jo_real = st.number_input("HH Jorella (real)", value=p.get("hh_jorella_real") or 0, min_value=0, key="hh_jo_real")
+        
+        if st.button("💾 Guardar HH", type="primary"):
+            conn = get_connection()
+            conn.execute("""
+                UPDATE aidu_proyectos
+                SET hh_ignacio_estimado=?, hh_jorella_estimado=?, hh_ignacio_real=?, hh_jorella_real=?
+                WHERE id=?
+            """, (hh_ig_est, hh_jo_est, hh_ig_real, hh_jo_real, proyecto_id))
+            conn.commit()
+            conn.close()
+            st.success("✅ Guardado")
+            st.rerun()
+        
+        # Cálculo de costos
+        try:
+            from app.core.configuracion import obtener_config
+            cfg = obtener_config()
+            costo_total_est = (hh_ig_est + hh_jo_est) * cfg.costo_hora_total
+            costo_total_real = (hh_ig_real + hh_jo_real) * cfg.costo_hora_total
+            
+            st.divider()
+            st.markdown("###### 💰 Costo estimado vs real")
+            
+            ce1, ce2, ce3 = st.columns(3)
+            ce1.metric("Costo estimado", formato_clp(costo_total_est))
+            ce2.metric("Costo real", formato_clp(costo_total_real))
+            
+            if hh_ig_est + hh_jo_est > 0:
+                pct_completado = ((hh_ig_real + hh_jo_real) / (hh_ig_est + hh_jo_est)) * 100
+                ce3.metric("% Completado", f"{pct_completado:.0f}%")
+        except Exception:
+            pass
+    
+    # ============ TAB 7: PAQUETE ============
+    with t_paquete:
+        st.markdown("##### 📦 Paquete de oferta")
+        st.caption("Generación automática de Word + Excel + Anexos")
+        
+        if p.get("paquete_generado"):
+            st.success(f"✅ Paquete ya generado · {p.get('paquete_path', '')}")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📝 Generar Word (Propuesta técnica)", use_container_width=True, type="primary"):
+                try:
+                    from app.core.generador_paquete import generar_word_propuesta
+                    path = generar_word_propuesta(proyecto_id)
+                    if path:
+                        st.success(f"✅ Word generado: {path}")
+                        with open(path, "rb") as f:
+                            st.download_button("⬇️ Descargar Word", f, file_name=f"{p['codigo_externo']}_propuesta.docx")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        with col2:
+            if st.button("📊 Generar Excel (Oferta económica)", use_container_width=True, type="primary"):
+                try:
+                    from app.core.generador_paquete import generar_excel_economico
+                    path = generar_excel_economico(proyecto_id)
+                    if path:
+                        st.success(f"✅ Excel generado: {path}")
+                        with open(path, "rb") as f:
+                            st.download_button("⬇️ Descargar Excel", f, file_name=f"{p['codigo_externo']}_economico.xlsx")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        st.divider()
+        st.markdown("###### 📋 Lo que incluye el paquete")
+        st.markdown("""
+        - 📄 **Word**: Carta presentación, Propuesta técnica, Equipo, Cronograma, Anexos
+        - 📊 **Excel**: Oferta económica con cubicaciones, Cronograma de pago, Resumen
+        - 📁 **Anexos**: Declaraciones juradas prellenadas con tus datos (RUT, patente, etc.)
+        """)
+    
+    # ============ TAB 8: BITÁCORA ============
+    with t_bitacora:
+        st.markdown("##### 📝 Bitácora cronológica")
+        
+        # Form para nueva nota
+        with st.expander("➕ Agregar nota", expanded=False):
+            nueva_nota = st.text_area("Nota", key="nueva_nota_proy", height=100)
+            if st.button("💾 Guardar nota", type="primary"):
+                if nueva_nota.strip():
+                    conn = get_connection()
+                    conn.execute("""
+                        INSERT INTO bitacora (proyecto_id, tipo, mensaje)
+                        VALUES (?, 'nota', ?)
+                    """, (proyecto_id, nueva_nota.strip()))
+                    conn.commit()
+                    conn.close()
+                    st.success("Nota guardada")
+                    st.rerun()
+        
+        # Listar bitácora
+        conn = get_connection()
+        eventos = conn.execute("""
+            SELECT * FROM bitacora WHERE proyecto_id = ?
+            ORDER BY fecha DESC LIMIT 50
+        """, (proyecto_id,)).fetchall()
+        conn.close()
+        
+        if not eventos:
+            st.caption("Sin eventos registrados aún")
+        else:
+            for e in eventos:
+                tipo = e["tipo"] if "tipo" in e.keys() else "evento"
+                icon_map = {
+                    "nota": "📝", "estado_cambio": "🔄", "ia": "🤖", 
+                    "paquete": "📦", "checklist": "✅", "sistema": "⚙️"
+                }
+                icon = icon_map.get(tipo, "•")
+                
+                st.markdown(f"""
+                <div style='padding:12px 16px; background:white; border:1px solid #E2E8F0; border-left:3px solid #1E40AF; border-radius:8px; margin-bottom:8px;'>
+                    <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
+                        <span style='font-weight:600; font-size:13px; color:#0F172A;'>{icon} {tipo.upper()}</span>
+                        <span style='font-size:11px; color:#94A3B8; font-family:JetBrains Mono,monospace;'>{e["fecha"][:16]}</span>
+                    </div>
+                    <div style='font-size:13px; color:#334155; line-height:1.5;'>{e["mensaje"]}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -2167,7 +2602,7 @@ if tab_cartera:
     cols[2].metric("En estudio", estados_count.get("ESTUDIO", 0))
     cols[3].metric("Preparación", estados_count.get("EN_PREPARACION", 0))
     cols[4].metric("Listo ofertar", estados_count.get("LISTO_OFERTAR", 0))
-    cols[5].metric("Adjudicadas", estados_count.get("ADJUDICADA", 0))
+    cols[5].metric("Adjudicadas", estados_count.get("ADJUDICADO", 0))
 
     st.divider()
 
@@ -2181,8 +2616,8 @@ if tab_cartera:
             "PROSPECTO": ("🔬 Estudiar próximo", "ESTUDIO"),
             "ESTUDIO": ("📋 Pasar a Preparación", "EN_PREPARACION"),
             "EN_PREPARACION": ("🚀 Marcar Listo para Ofertar", "LISTO_OFERTAR"),
-            "LISTO_OFERTAR": ("📤 Marcar como Ofertada", "OFERTADA"),
-            "OFERTADA": ("✅ Marcar Adjudicada", "ADJUDICADA"),
+            "LISTO_OFERTAR": ("📤 Marcar como Ofertada", "OFERTADO"),
+            "OFERTADO": ("✅ Marcar Adjudicada", "ADJUDICADO"),
         }
         
         for p in proyectos:
@@ -2233,7 +2668,7 @@ if tab_cartera:
                     col3.metric("Días cierre", f"{emoji_dias(dias)} {dias}")
 
                 # Alerta si días al cierre crítico
-                if dias is not None and dias <= 3 and p["estado"] not in ("OFERTADA", "ADJUDICADA", "RECHAZADA"):
+                if dias is not None and dias <= 3 and p["estado"] not in ("OFERTADO", "ADJUDICADO", "PERDIDO"):
                     st.warning(f"⚠️ ¡Cierra en {dias} día{'s' if dias != 1 else ''}! Acelera la preparación.")
                 
                 # 🆕 Indicadores de readiness (checklist + paquete)
@@ -2277,9 +2712,9 @@ if tab_cartera:
                     if col_a.button(label, key=f"adv_{p['id']}", use_container_width=True, type="primary"):
                         _cambiar_estado(p["id"], nuevo_estado, paquete=(nuevo_estado == "LISTO_OFERTAR"))
                         st.rerun()
-                elif p["estado"] == "ADJUDICADA":
+                elif p["estado"] == "ADJUDICADO":
                     col_a.success("🏆 Adjudicada")
-                elif p["estado"] == "RECHAZADA":
+                elif p["estado"] == "PERDIDO":
                     col_a.error("❌ Rechazada")
 
                 if col_c.button("👁️ Ver detalle", key=f"det_{p['id']}", use_container_width=True):

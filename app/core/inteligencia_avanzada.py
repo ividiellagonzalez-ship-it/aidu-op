@@ -244,8 +244,8 @@ PROB_ETAPA = {
     "ESTUDIO": 0.25,
     "EN_PREPARACION": 0.45,
     "LISTO_OFERTAR": 0.65,
-    "OFERTADA": 0.40,  # bajó porque ya está en manos de evaluación
-    "ADJUDICADA": 1.0,
+    "OFERTADO": 0.40,  # bajó porque ya está en manos de evaluación
+    "ADJUDICADO": 1.0,
 }
 
 
@@ -276,7 +276,7 @@ def forecast_pipeline_90d() -> Dict:
             SELECT id, nombre, organismo, estado, monto_referencial, fecha_cierre,
                    cod_servicio_aidu, precio_ofertado, probabilidad_estimada
             FROM aidu_proyectos
-            WHERE estado NOT IN ('PERDIDA', 'NO_PARTICIPAR', 'ARCHIVADO', 'ADJUDICADA')
+            WHERE estado NOT IN ('PERDIDA', 'NO_PARTICIPAR', 'ARCHIVADO', 'ADJUDICADO')
             ORDER BY monto_referencial DESC
         """).fetchall()
         
@@ -308,7 +308,7 @@ def forecast_pipeline_90d() -> Dict:
             for etapa, data in por_etapa_dict.items()
         ]
         # Orden por flujo natural
-        orden = ["PROSPECTO", "ESTUDIO", "EN_PREPARACION", "LISTO_OFERTAR", "OFERTADA"]
+        orden = ["PROSPECTO", "ESTUDIO", "EN_PREPARACION", "LISTO_OFERTAR", "OFERTADO"]
         por_etapa.sort(key=lambda x: orden.index(x["etapa"]) if x["etapa"] in orden else 99)
         
         valor_total = sum(d["valor"] for d in por_etapa_dict.values())
@@ -358,19 +358,19 @@ def tasa_exito_por_dimension() -> Dict:
         terminal = conn.execute("""
             SELECT estado, COUNT(*) as n
             FROM aidu_proyectos
-            WHERE estado IN ('ADJUDICADA', 'PERDIDA', 'NO_PARTICIPAR', 'OFERTADA')
+            WHERE estado IN ('ADJUDICADO', 'PERDIDA', 'NO_PARTICIPAR', 'OFERTADO')
             GROUP BY estado
         """).fetchall()
         
-        total_postuladas = sum(r["n"] for r in terminal if r["estado"] in ["ADJUDICADA", "PERDIDA"])
-        adjudicadas = next((r["n"] for r in terminal if r["estado"] == "ADJUDICADA"), 0)
+        total_postuladas = sum(r["n"] for r in terminal if r["estado"] in ["ADJUDICADO", "PERDIDA"])
+        adjudicadas = next((r["n"] for r in terminal if r["estado"] == "ADJUDICADO"), 0)
         win_rate_global = round((adjudicadas / total_postuladas) * 100, 1) if total_postuladas > 0 else 0
         
         # Por categoría
         por_cat = conn.execute("""
             SELECT cod_servicio_aidu,
-                   SUM(CASE WHEN estado = 'ADJUDICADA' THEN 1 ELSE 0 END) as ganadas,
-                   SUM(CASE WHEN estado IN ('ADJUDICADA', 'PERDIDA') THEN 1 ELSE 0 END) as postuladas
+                   SUM(CASE WHEN estado = 'ADJUDICADO' THEN 1 ELSE 0 END) as ganadas,
+                   SUM(CASE WHEN estado IN ('ADJUDICADO', 'PERDIDA') THEN 1 ELSE 0 END) as postuladas
             FROM aidu_proyectos
             WHERE cod_servicio_aidu IS NOT NULL
             GROUP BY cod_servicio_aidu
@@ -391,8 +391,8 @@ def tasa_exito_por_dimension() -> Dict:
         # Por mandante
         por_mand = conn.execute("""
             SELECT organismo,
-                   SUM(CASE WHEN estado = 'ADJUDICADA' THEN 1 ELSE 0 END) as ganadas,
-                   SUM(CASE WHEN estado IN ('ADJUDICADA', 'PERDIDA') THEN 1 ELSE 0 END) as postuladas
+                   SUM(CASE WHEN estado = 'ADJUDICADO' THEN 1 ELSE 0 END) as ganadas,
+                   SUM(CASE WHEN estado IN ('ADJUDICADO', 'PERDIDA') THEN 1 ELSE 0 END) as postuladas
             FROM aidu_proyectos
             WHERE organismo IS NOT NULL AND organismo != ''
             GROUP BY organismo
