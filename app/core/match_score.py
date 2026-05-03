@@ -264,6 +264,7 @@ def listar_oportunidades(
                 l.fecha_publicacion, l.fecha_cierre, l.fecha_adjudicacion,
                 l.monto_referencial, l.monto_adjudicado, l.estado,
                 l.proveedor_adjudicado, l.n_oferentes,
+                l.url_mp_canonica,
                 c.cod_servicio_aidu, c.confianza
             FROM mp_licitaciones_adj l
             LEFT JOIN mp_categorizacion_aidu c ON c.codigo_externo = l.codigo_externo

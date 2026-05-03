@@ -203,6 +203,7 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
     columnas_requeridas = {
         "aidu_proyectos": [
             ("url_mp", "TEXT"),
+            ("url_mp_canonica", "TEXT"),
             ("fecha_subida_mp", "TEXT"),
             ("url_oferta_subida", "TEXT"),
             ("metros_cuadrados", "INTEGER"),
@@ -214,6 +215,15 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
             ("fecha_fin_consultas", "TEXT"),
         ],
         "mp_licitaciones_adj": [
+            ("metros_cuadrados", "INTEGER"),
+            ("plazo_dias", "INTEGER"),
+            ("n_entregables", "INTEGER"),
+            ("tipo_servicio", "TEXT"),
+            ("complejidad", "TEXT"),
+            ("url_mp_canonica", "TEXT"),
+        ],
+        "mp_licitaciones_vigentes": [
+            ("url_mp_canonica", "TEXT"),
             ("metros_cuadrados", "INTEGER"),
             ("plazo_dias", "INTEGER"),
             ("n_entregables", "INTEGER"),

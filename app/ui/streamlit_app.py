@@ -1260,26 +1260,69 @@ def _tabla_existe(conn, nombre):
         return False
 
 
-def url_licitacion_mp(codigo: str) -> str:
+def url_licitacion_mp(codigo: str, url_canonica: str = None) -> str:
     """
-    URL pública de Mercado Público para llegar a la búsqueda de una licitación.
+    URL pública para abrir la ficha de una licitación en Mercado Público.
     
-    Estrategia v16: la nueva plataforma pública de MP es una SPA y no acepta
-    parámetros directos en la URL. Por eso abrimos la página de búsqueda
-    pública (NO requiere sesión) y el usuario pega el código.
+    CASCADE de fallbacks (de mejor a peor):
     
-    Para facilitar esto, en la UI mostramos un botón "Copiar código" + 
-    "Abrir MP" que copia el código al portapapeles y abre la página.
+    1. URL canónica del API (`UrlAcceso`):
+       - Cuando la consulta detallada por código retornó la URL con hash qs,
+         la guardamos en BD. Esa URL abre la ficha SIN sesión, directamente.
+       - Es la solución óptima.
+    
+    2. URL legacy `?idlicitacion={codigo}`:
+       - Funciona para licitaciones REALES vigentes/recientes.
+       - El sistema clásico de MP la sigue redirigiendo correctamente.
+       - Si MP la considera expirada, redirige a error (manejable).
+    
+    3. URL del nuevo buscador SPA:
+       - Última opción. El usuario debe pegar el código manualmente.
+    
+    Para que el botón funcione siempre, el caller debe pasar `url_canonica` 
+    cuando esté disponible (típicamente desde la BD).
     """
     if not codigo:
-        return "https://www.mercadopublico.cl/home/busquedalicitacion"
-    # La SPA pública de MP. Funciona sin sesión.
-    return "https://www.mercadopublico.cl/home/busquedalicitacion"
+        return "https://www.mercadopublico.cl/"
+    
+    # 1) URL canónica del API (cuando la tenemos guardada)
+    if url_canonica and url_canonica.strip().startswith("http"):
+        return url_canonica.strip()
+    
+    # 2) URL legacy con idlicitacion (funciona para licitaciones recientes)
+    return f"https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion={codigo}"
 
 
 def url_busqueda_mp(codigo: str) -> str:
     """Alias para compatibilidad con código antiguo."""
     return url_licitacion_mp(codigo)
+
+
+def get_url_canonica_db(codigo: str) -> str:
+    """
+    Helper: lee url_mp_canonica de la BD si existe.
+    Retorna None si no está guardada o si la columna no existe.
+    """
+    if not codigo:
+        return None
+    try:
+        conn = get_connection()
+        # Probar primero en vigentes
+        row = conn.execute(
+            "SELECT url_mp_canonica FROM mp_licitaciones_vigentes WHERE codigo_externo = ?",
+            (codigo,)
+        ).fetchone()
+        if not row or not row["url_mp_canonica"]:
+            row = conn.execute(
+                "SELECT url_mp_canonica FROM mp_licitaciones_adj WHERE codigo_externo = ?",
+                (codigo,)
+            ).fetchone()
+        conn.close()
+        if row and row["url_mp_canonica"]:
+            return row["url_mp_canonica"]
+    except Exception:
+        pass
+    return None
 
 
 # ============================================================
@@ -2557,320 +2600,414 @@ tab_hoy = False
 # 🏠 DASHBOARD — Vista de inicio con embudo visible
 # ============================================================
 if tab_dashboard:
-    # ================== HEADER CON CONTEXTO ==================
-    from datetime import datetime as _dt
-    hora_actual = _dt.now().strftime("%H:%M")
-    fecha_hoy = _dt.now().strftime("%A %d de %B")
+    from datetime import datetime as _dt, date as _date_dash, timedelta as _td_dash
+    
+    # ================== HERO ESTILO BLOOMBERG ==================
+    hora_ahora = _dt.now().strftime("%H:%M")
+    fecha_hoy = _dt.now().strftime("%d %b %Y")
     
     st.markdown(f"""
-    <div style="margin-bottom:24px;">
-        <h1 style="margin:0; font-size:28px; color:#0F172A;">👋 Buen día, Ignacio</h1>
-        <p style="margin:4px 0 0; font-size:14px; color:#64748B;">{fecha_hoy} · {hora_actual} · ¿Qué licitaciones merecen tu atención hoy?</p>
+    <div style="background:linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%); padding:24px 28px; border-radius:14px; margin-bottom:24px; color:white; box-shadow:0 4px 20px rgba(15,23,42,0.2);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#94A3B8; font-weight:600;">AIDU OP · MARKET INTELLIGENCE</div>
+                <div style="font-size:26px; font-weight:800; margin-top:4px;">📊 Estado del Mercado</div>
+                <div style="font-size:13px; color:#CBD5E1; margin-top:2px;">Compras Públicas Chile · Datos en tiempo real</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#94A3B8;">{fecha_hoy}</div>
+                <div style="font-size:22px; font-weight:700; margin-top:4px; font-family:'JetBrains Mono', monospace;">{hora_ahora}</div>
+                <div style="font-size:11px; color:#10B981; margin-top:2px;">● MERCADO ABIERTO</div>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # ================== SECCIÓN 1: ¿QUÉ DECIDIR HOY? ==================
-    conn = get_connection()
+    # ================== CARGA DE DATOS DE INTELIGENCIA ==================
     try:
-        n_buscar = conn.execute(
-            "SELECT COUNT(*) FROM mp_licitaciones_vigentes WHERE estado IN ('Publicada','Recepcion de Ofertas','Recepción de Ofertas')"
-        ).fetchone()[0] if _tabla_existe(conn, "mp_licitaciones_vigentes") else 0
+        from app.core.inteligencia_mercado import (
+            metricas_mercado_global, market_share_aidu, distribucion_por_categoria_aidu,
+            distribucion_por_region, top_organismos_compradores, evolucion_mensual,
+            stats_base_datos
+        )
         
-        n_cartera = conn.execute("SELECT COUNT(*) FROM aidu_proyectos WHERE estado = 'EN_CARTERA'").fetchone()[0]
-        n_estudio = conn.execute("SELECT COUNT(*) FROM aidu_proyectos WHERE estado = 'EN_ESTUDIO'").fetchone()[0]
-        n_oferta  = conn.execute("SELECT COUNT(*) FROM aidu_proyectos WHERE estado = 'EN_OFERTA'").fetchone()[0]
-        n_subir   = conn.execute("SELECT COUNT(*) FROM aidu_proyectos WHERE estado = 'LISTO_SUBIR'").fetchone()[0]
-        
-        # Cierran ≤3 días en TODOS los estados activos
-        from datetime import date as _date, timedelta as _td
-        limite = (_date.today() + _td(days=3)).isoformat()
-        n_urgentes = conn.execute(
-            "SELECT COUNT(*) FROM aidu_proyectos WHERE estado IN ('EN_CARTERA','EN_ESTUDIO','EN_OFERTA','LISTO_SUBIR') AND fecha_cierre <= ? AND fecha_cierre IS NOT NULL",
-            (limite,)
-        ).fetchone()[0]
-    finally:
-        conn.close()
+        with st.spinner("Cargando inteligencia de mercado..."):
+            metricas = metricas_mercado_global(dias_atras=365)
+            share = market_share_aidu(dias_atras=365)
+            por_categoria = distribucion_por_categoria_aidu(dias_atras=365)
+            por_region = distribucion_por_region(dias_atras=365, solo_aidu=True)
+            por_region_total = distribucion_por_region(dias_atras=365, solo_aidu=False)
+            top_orgs = top_organismos_compradores(limit=10, dias_atras=365)
+            evolucion = evolucion_mensual(meses_atras=12)
+            bd_stats = stats_base_datos()
+    except Exception as e:
+        st.error(f"Error cargando inteligencia de mercado: {e}")
+        metricas = share = bd_stats = {}
+        por_categoria = por_region = por_region_total = top_orgs = evolucion = []
     
-    st.markdown("##### 🎯 Decisiones que requieren tu atención")
+    # ================== TICKER PRINCIPAL (4 KPIs grandes estilo bolsa) ==================
+    st.markdown("##### 🌐 Ticker · Últimos 365 días")
     
-    col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+    col_t1, col_t2, col_t3, col_t4 = st.columns(4)
     
-    with col_d1:
+    monto_total_b = (metricas.get("monto_total_clp") or 0) / 1_000_000_000  # en miles de millones
+    
+    with col_t1:
         st.markdown(f"""
-        <div style='background:linear-gradient(135deg, #DBEAFE 0%, white 100%); padding:18px 16px; border-radius:14px; border-top:3px solid #1E40AF;'>
-            <div style='font-size:11px; color:#1E40AF; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;'>🔍 Para revisar</div>
-            <div style='font-size:36px; font-weight:800; color:#1E40AF; line-height:1; margin:6px 0;'>{n_buscar}</div>
-            <div style='font-size:12px; color:#64748B;'>Licitaciones vigentes en MP</div>
+        <div style="background:white; padding:18px 16px; border-radius:12px; border-left:4px solid #1D4ED8; box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:#64748B; font-weight:700;">MERCADO TOTAL</div>
+            <div style="font-size:24px; font-weight:800; color:#0F172A; margin:4px 0; font-family:'JetBrains Mono', monospace;">${monto_total_b:,.1f}B</div>
+            <div style="font-size:11px; color:#64748B;">CLP adjudicados · {metricas.get('n_adjudicadas', 0):,} licitaciones</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("→ Ir a Buscar", key="ir_buscar", use_container_width=True):
-            st.query_params["nav"] = "buscar"
-            st.rerun()
     
-    with col_d2:
-        urgent_color = "#C2410C" if n_urgentes > 0 else "#15803D"
-        urgent_bg = "#FFEDD5" if n_urgentes > 0 else "#DCFCE7"
+    with col_t2:
+        share_pct = share.get("share_monto_pct", 0)
+        share_n_pct = share.get("share_n_pct", 0)
+        color_share = "#059669" if share_pct >= 5 else "#D97706" if share_pct >= 1 else "#7C3AED"
         st.markdown(f"""
-        <div style='background:linear-gradient(135deg, {urgent_bg} 0%, white 100%); padding:18px 16px; border-radius:14px; border-top:3px solid {urgent_color};'>
-            <div style='font-size:11px; color:{urgent_color}; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;'>⏰ Cierran ≤3 días</div>
-            <div style='font-size:36px; font-weight:800; color:{urgent_color}; line-height:1; margin:6px 0;'>{n_urgentes}</div>
-            <div style='font-size:12px; color:#64748B;'>Proyectos activos urgentes</div>
+        <div style="background:white; padding:18px 16px; border-radius:12px; border-left:4px solid {color_share}; box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:#64748B; font-weight:700;">PERÍMETRO AIDU</div>
+            <div style="font-size:24px; font-weight:800; color:#0F172A; margin:4px 0; font-family:'JetBrains Mono', monospace;">{share_pct:.2f}%</div>
+            <div style="font-size:11px; color:#64748B;">market share · {share.get('n_perimetro_aidu', 0):,} licitaciones</div>
         </div>
         """, unsafe_allow_html=True)
-        if n_urgentes > 0:
-            if st.button("→ Ver urgentes", key="ir_urgentes", use_container_width=True):
-                st.query_params["nav"] = "estudio" if n_estudio > 0 else "cartera"
-                st.rerun()
     
-    with col_d3:
+    with col_t3:
         st.markdown(f"""
-        <div style='background:linear-gradient(135deg, #FED7AA 0%, white 100%); padding:18px 16px; border-radius:14px; border-top:3px solid #9A3412;'>
-            <div style='font-size:11px; color:#9A3412; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;'>📝 En oferta</div>
-            <div style='font-size:36px; font-weight:800; color:#9A3412; line-height:1; margin:6px 0;'>{n_oferta}</div>
-            <div style='font-size:12px; color:#64748B;'>Preparando propuesta</div>
+        <div style="background:white; padding:18px 16px; border-radius:12px; border-left:4px solid #06B6D4; box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:#64748B; font-weight:700;">ORGANISMOS</div>
+            <div style="font-size:24px; font-weight:800; color:#0F172A; margin:4px 0; font-family:'JetBrains Mono', monospace;">{metricas.get('n_organismos', 0):,}</div>
+            <div style="font-size:11px; color:#64748B;">compradores activos en período</div>
         </div>
         """, unsafe_allow_html=True)
-        if n_oferta > 0:
-            if st.button("→ Ir a Ofertar", key="ir_oferta", use_container_width=True):
-                st.query_params["nav"] = "ofertar"
-                st.rerun()
     
-    with col_d4:
+    with col_t4:
         st.markdown(f"""
-        <div style='background:linear-gradient(135deg, #E9D5FF 0%, white 100%); padding:18px 16px; border-radius:14px; border-top:3px solid #6B21A8;'>
-            <div style='font-size:11px; color:#6B21A8; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;'>📤 Listo subir</div>
-            <div style='font-size:36px; font-weight:800; color:#6B21A8; line-height:1; margin:6px 0;'>{n_subir}</div>
-            <div style='font-size:12px; color:#64748B;'>Para cargar en MP</div>
+        <div style="background:white; padding:18px 16px; border-radius:12px; border-left:4px solid #7C3AED; box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:#64748B; font-weight:700;">VIGENTES AHORA</div>
+            <div style="font-size:24px; font-weight:800; color:#0F172A; margin:4px 0; font-family:'JetBrains Mono', monospace;">{metricas.get('n_vigentes', 0):,}</div>
+            <div style="font-size:11px; color:#64748B;">licitaciones abiertas a postular</div>
         </div>
         """, unsafe_allow_html=True)
-        if n_subir > 0:
-            if st.button("→ Ir a Subir", key="ir_subir", use_container_width=True):
-                st.query_params["nav"] = "subir"
-                st.rerun()
     
     st.divider()
     
-    # ================== SECCIÓN 2: EMBUDO RESUMIDO ==================
-    st.markdown("##### 🚀 Embudo Comercial — vista compacta")
-    st.caption("Cantidad de proyectos activos por etapa. Click en una etapa para verla en detalle.")
-    
-    conn = get_connection()
+    # ================== GRÁFICOS PRINCIPALES (2 columnas) ==================
     try:
-        embudo_counts = {}
-        for estado in ["EN_CARTERA", "EN_ESTUDIO", "EN_OFERTA", "LISTO_SUBIR"]:
-            row = conn.execute(
-                "SELECT COUNT(*) as n, SUM(monto_referencial) as monto FROM aidu_proyectos WHERE estado = ?",
-                (estado,)
-            ).fetchone()
-            embudo_counts[estado] = {"n": row["n"] or 0, "monto": row["monto"] or 0}
+        import plotly.graph_objects as go
+        import plotly.express as px
+        plotly_disponible = True
+    except ImportError:
+        plotly_disponible = False
+        st.warning("⚠️ Para ver gráficos avanzados, instala plotly: `pip install plotly`")
+    
+    if plotly_disponible:
+        # === FILA 1: Evolución mensual + Market Share ===
+        col_g1, col_g2 = st.columns([3, 2])
         
-        adj_row = conn.execute(
-            "SELECT COUNT(*) as n, SUM(monto_referencial) as monto FROM aidu_proyectos WHERE estado = 'ADJUDICADO'"
-        ).fetchone()
-        adjudicadas = {"n": adj_row["n"] or 0, "monto": adj_row["monto"] or 0}
-    finally:
-        conn.close()
-    
-    embudo_def = [
-        ("EN_CARTERA",  "📂 Cartera",    "cartera",  "#1E40AF", "#DBEAFE"),
-        ("EN_ESTUDIO",  "🔬 Estudio",    "estudio",  "#0E7490", "#CFFAFE"),
-        ("EN_OFERTA",   "📝 Ofertar",    "ofertar",  "#9A3412", "#FED7AA"),
-        ("LISTO_SUBIR", "📤 Subir a MP", "subir",    "#6B21A8", "#E9D5FF"),
-    ]
-    
-    cols = st.columns(4)
-    for i, (estado, label, nav_key, color, bg) in enumerate(embudo_def):
-        data = embudo_counts.get(estado, {"n": 0, "monto": 0})
-        cols[i].markdown(
-            f"<div style='padding:14px 12px; background:linear-gradient(135deg, {bg} 0%, white 100%); border-radius:10px; text-align:center; border-top:2px solid {color};'>"
-            f"<div style='font-size:12px; font-weight:600; color:{color};'>{label}</div>"
-            f"<div style='font-size:32px; font-weight:800; color:{color}; line-height:1; margin:6px 0;'>{data['n']}</div>"
-            f"<div style='font-size:11px; color:#64748B;'>{formato_clp(data['monto'])}</div>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-    
-    if adjudicadas["n"] > 0:
-        st.success(f"🏆 **{adjudicadas['n']} licitaciones adjudicadas históricas** · Total {formato_clp(adjudicadas['monto'])}")
+        with col_g1:
+            st.markdown("##### 📈 Evolución del mercado · 12 meses")
+            st.caption("Volumen mensual de licitaciones adjudicadas. Tendencia macro de las compras públicas.")
+            
+            if evolucion:
+                meses = [e["mes"] for e in evolucion]
+                montos = [e["monto"] / 1_000_000_000 for e in evolucion]  # billones CLP
+                ns = [e["n"] for e in evolucion]
+                
+                fig_evol = go.Figure()
+                fig_evol.add_trace(go.Scatter(
+                    x=meses, y=montos,
+                    mode='lines+markers',
+                    name='Monto (B CLP)',
+                    line=dict(color='#1D4ED8', width=3),
+                    marker=dict(size=8, color='#1D4ED8'),
+                    fill='tozeroy',
+                    fillcolor='rgba(29, 78, 216, 0.08)',
+                    hovertemplate='<b>%{x}</b><br>Monto: $%{y:.2f}B CLP<extra></extra>'
+                ))
+                fig_evol.update_layout(
+                    height=300,
+                    margin=dict(l=10, r=10, t=10, b=30),
+                    plot_bgcolor='white',
+                    xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                    yaxis=dict(showgrid=True, gridcolor='#F1F5F9', tickfont=dict(size=10), title=dict(text='B CLP', font=dict(size=10))),
+                    hoverlabel=dict(bgcolor='white', bordercolor='#1D4ED8'),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_evol, use_container_width=True)
+            else:
+                st.info("📊 Sin datos de evolución. Descarga histórico de al menos 3 meses.")
+        
+        with col_g2:
+            st.markdown("##### 🎯 Tu cobertura del mercado")
+            st.caption("¿Qué % de las licitaciones son abordables por AIDU?")
+            
+            n_aidu = share.get("n_perimetro_aidu", 0)
+            n_total = share.get("n_mercado_total", 0)
+            n_fuera = max(0, n_total - n_aidu)
+            
+            if n_total > 0:
+                fig_donut = go.Figure(data=[go.Pie(
+                    labels=['Perímetro AIDU', 'Fuera de perímetro'],
+                    values=[n_aidu, n_fuera],
+                    hole=0.65,
+                    marker=dict(colors=['#1D4ED8', '#E2E8F0'], line=dict(color='white', width=2)),
+                    textinfo='none',
+                    hovertemplate='<b>%{label}</b><br>%{value:,} licitaciones<br>%{percent}<extra></extra>'
+                )])
+                fig_donut.update_layout(
+                    height=300,
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    showlegend=True,
+                    legend=dict(orientation='h', y=-0.1, font=dict(size=11)),
+                    annotations=[dict(
+                        text=f"<b style='font-size:24px; color:#1D4ED8;'>{share.get('share_n_pct', 0):.1f}%</b><br><span style='font-size:11px; color:#64748B;'>{n_aidu:,} de {n_total:,}</span>",
+                        x=0.5, y=0.5, showarrow=False
+                    )]
+                )
+                st.plotly_chart(fig_donut, use_container_width=True)
+            else:
+                st.info("📭 Sin datos de cobertura. Descarga histórico para calcular.")
+        
+        # === FILA 2: Distribución por categoría AIDU + Por región ===
+        col_g3, col_g4 = st.columns(2)
+        
+        with col_g3:
+            st.markdown("##### 🏷️ Distribución por servicio AIDU")
+            st.caption("Monto adjudicado por categoría dentro de tu perímetro de servicios.")
+            
+            if por_categoria:
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=[c["categoria"] for c in por_categoria],
+                    values=[c["monto"] / 1_000_000 for c in por_categoria],  # MM CLP
+                    marker=dict(
+                        colors=['#1D4ED8', '#3B82F6', '#06B6D4', '#7C3AED', '#A78BFA', '#059669', '#D97706', '#0891B2', '#9333EA', '#10B981'],
+                        line=dict(color='white', width=2)
+                    ),
+                    textinfo='label+percent',
+                    textfont=dict(size=11),
+                    hovertemplate='<b>%{label}</b><br>$%{value:,.0f}M CLP<br>%{percent}<extra></extra>'
+                )])
+                fig_pie.update_layout(
+                    height=320,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("Sin licitaciones categorizadas en perímetro AIDU. Carga histórico para activar.")
+        
+        with col_g4:
+            st.markdown("##### 🌎 Por región AIDU")
+            st.caption("Tamaño de mercado en regiones donde operas.")
+            
+            if por_region:
+                regiones_short = [r["region"][:20] + "..." if len(r["region"]) > 20 else r["region"] for r in por_region]
+                montos_mm = [r["monto"] / 1_000_000 for r in por_region]  # MM CLP
+                
+                fig_bar = go.Figure(data=[go.Bar(
+                    y=regiones_short,
+                    x=montos_mm,
+                    orientation='h',
+                    marker=dict(color='#1D4ED8', line=dict(color='#1E3A8A', width=1)),
+                    text=[f"${m:,.0f}M" for m in montos_mm],
+                    textposition='outside',
+                    hovertemplate='<b>%{y}</b><br>$%{x:,.0f}M CLP<extra></extra>'
+                )])
+                fig_bar.update_layout(
+                    height=320,
+                    margin=dict(l=10, r=60, t=10, b=10),
+                    plot_bgcolor='white',
+                    xaxis=dict(showgrid=True, gridcolor='#F1F5F9', tickfont=dict(size=10), title=dict(text='Monto (MM CLP)', font=dict(size=10))),
+                    yaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("Sin licitaciones en regiones AIDU para el período.")
+        
+        # === FILA 3: Top organismos compradores ===
+        st.markdown("##### 🏛️ Top 10 organismos compradores · perímetro AIDU")
+        st.caption("Rankings por monto adjudicado en últimos 365 días. Estos son tus principales prospectos.")
+        
+        if top_orgs:
+            tabla_orgs = []
+            for i, org in enumerate(top_orgs, 1):
+                tabla_orgs.append({
+                    "#": i,
+                    "Organismo": org["organismo"][:50] + ("..." if len(org["organismo"]) > 50 else ""),
+                    "Licitaciones": f"{org['n_licitaciones']:,}",
+                    "Monto total": f"${org['monto_total']/1_000_000:,.0f} MM",
+                    "Ticket promedio": f"${org['ticket_promedio']/1_000_000:,.1f} MM",
+                })
+            st.dataframe(tabla_orgs, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sin organismos en BD para el período. Descarga histórico para activar.")
     
     st.divider()
     
-    # ================== SECCIÓN 3: SINCRONIZACIÓN MP CON OPCIONES ==================
-    st.markdown("##### 📡 Sincronizar con Mercado Público")
-    st.caption("Trae las últimas licitaciones publicadas. **Más días = más datos pero más tiempo.**")
+    # ================== GESTIÓN DE BASE DE DATOS ==================
+    st.markdown("##### 💾 Base de datos local · Inteligencia AIDU")
     
-    col_sync1, col_sync2 = st.columns([3, 1])
+    col_bd1, col_bd2, col_bd3, col_bd4 = st.columns(4)
     
-    with col_sync1:
-        sync_dias = st.select_slider(
-            "Rango de descarga",
-            options=[1, 2, 3, 7, 14, 30],
-            value=3,
-            format_func=lambda d: f"{d} día{'s' if d > 1 else ''}",
-            help="Cuántos días hacia atrás traer licitaciones nuevas. 1d = ~10s, 7d = ~30s, 30d = ~2min."
-        )
+    with col_bd1:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, #DBEAFE 0%, white 100%); padding:14px; border-radius:10px;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#1E3A8A; font-weight:700;">VIGENTES</div>
+            <div style="font-size:22px; font-weight:800; color:#1D4ED8; font-family:'JetBrains Mono', monospace;">{bd_stats.get('n_vigentes', 0):,}</div>
+            <div style="font-size:10px; color:#64748B;">licitaciones publicadas</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_bd2:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, #DBEAFE 0%, white 100%); padding:14px; border-radius:10px;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#1E3A8A; font-weight:700;">HISTÓRICO</div>
+            <div style="font-size:22px; font-weight:800; color:#1D4ED8; font-family:'JetBrains Mono', monospace;">{bd_stats.get('n_historicas', 0):,}</div>
+            <div style="font-size:10px; color:#64748B;">adjudicadas en BD</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_bd3:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, #DBEAFE 0%, white 100%); padding:14px; border-radius:10px;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#1E3A8A; font-weight:700;">CATEGORIZADAS</div>
+            <div style="font-size:22px; font-weight:800; color:#1D4ED8; font-family:'JetBrains Mono', monospace;">{bd_stats.get('n_categorizadas_aidu', 0):,}</div>
+            <div style="font-size:10px; color:#64748B;">match con perfil AIDU</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_bd4:
+        rango_desde = bd_stats.get('rango_desde') or '—'
+        rango_hasta = bd_stats.get('rango_hasta') or '—'
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, #DBEAFE 0%, white 100%); padding:14px; border-radius:10px;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#1E3A8A; font-weight:700;">RANGO TEMPORAL</div>
+            <div style="font-size:14px; font-weight:700; color:#1D4ED8; margin-top:4px;">{rango_desde[:10]}</div>
+            <div style="font-size:14px; font-weight:700; color:#1D4ED8;">→ {rango_hasta[:10]}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ================== DESCARGA HISTÓRICA MASIVA ==================
+    st.markdown("##### ⏬ Descarga histórica retroactiva")
+    st.caption("Construye tu base de datos histórica para análisis de mercado. Puedes pausar y reanudar — el sistema retoma desde donde quedó.")
+    
+    try:
+        from app.core.descarga_historica import progreso_descarga_historica, descargar_rango
+        prog = progreso_descarga_historica()
+    except Exception as e:
+        st.warning(f"⚠️ Módulo de descarga histórica no disponible: {e}")
+        prog = {"n_dias_descargados": 0}
+    
+    with st.expander("🔧 Configurar descarga histórica", expanded=False):
+        st.markdown(f"**Estado actual:** {prog.get('n_dias_descargados', 0)} días en BD · "
+                    f"{prog.get('total_vigentes_acumulado', 0):,} vigentes + {prog.get('total_adjudicadas_acumulado', 0):,} adjudicadas")
         
-        # Estimaciones de tiempo
-        tiempo_est = {1: "~10 seg", 2: "~15 seg", 3: "~20 seg", 7: "~30 seg", 14: "~60 seg", 30: "~120 seg"}
-        precision = "Precisión: solo HOY" if sync_dias == 1 else f"Precisión: últimos {sync_dias} días"
+        col_dh1, col_dh2 = st.columns(2)
         
-        st.caption(f"⏱️ Tiempo estimado: **{tiempo_est.get(sync_dias, '~?')}** · {precision}")
+        hoy_dh = _date_dash.today()
+        with col_dh1:
+            fecha_ini = st.date_input(
+                "Desde (fecha más antigua)",
+                value=hoy_dh - _td_dash(days=365),
+                max_value=hoy_dh,
+                key="hist_fecha_ini",
+                help="Fecha más antigua a descargar. Recomendado: 1 año atrás.",
+                format="DD/MM/YYYY"
+            )
+        with col_dh2:
+            fecha_fin = st.date_input(
+                "Hasta (fecha más reciente)",
+                value=hoy_dh - _td_dash(days=1),
+                max_value=hoy_dh,
+                key="hist_fecha_fin",
+                help="Fecha más reciente a descargar.",
+                format="DD/MM/YYYY"
+            )
+        
+        col_dh3, col_dh4, col_dh5 = st.columns(3)
+        incluir_vig = col_dh3.checkbox("📋 Vigentes (publicadas)", value=True, key="hist_inc_vig")
+        incluir_adj = col_dh4.checkbox("🏆 Adjudicadas", value=True, key="hist_inc_adj")
+        saltar_done = col_dh5.checkbox("⏭️ Saltar días ya descargados", value=True, key="hist_skip")
+        
+        n_dias = (fecha_fin - fecha_ini).days + 1 if fecha_fin >= fecha_ini else 0
+        tiempo_estimado_min = round(n_dias * 4 / 60, 1)  # ~4 seg/día (rate limit)
+        
+        st.markdown(f"""
+        <div style="background:#FEF3C7; padding:12px 16px; border-radius:8px; border-left:3px solid #D97706; margin:12px 0; font-size:13px;">
+            <strong>📅 Plan de descarga:</strong> {n_dias} días<br>
+            <strong>⏱️ Tiempo estimado:</strong> ~{tiempo_estimado_min} minutos<br>
+            <strong>📊 Datos esperados:</strong> ~{n_dias * 50:,} licitaciones (estimado promedio)<br>
+            <span style="color:#92400E;">⚠️ Esto puede tomar tiempo. Deja la pestaña abierta. Si se interrumpe, puedes retomar desde donde quedó.</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🚀 Iniciar descarga histórica", type="primary", use_container_width=True, key="btn_hist_start"):
+            if n_dias <= 0:
+                st.error("Rango inválido. fecha_fin debe ser >= fecha_ini")
+            elif not (incluir_vig or incluir_adj):
+                st.error("Selecciona al menos un tipo de licitación")
+            else:
+                progress_bar = st.progress(0, text="Iniciando descarga...")
+                status_box = st.empty()
+                
+                stats_local = {"n_vig_acum": 0, "n_adj_acum": 0, "errores": 0}
+                
+                def cb(dia_actual, total, fecha, n_v, n_a, status):
+                    progreso = dia_actual / total
+                    progress_bar.progress(progreso, text=f"Día {dia_actual}/{total} · {fecha}")
+                    if status == "ok":
+                        stats_local["n_vig_acum"] += n_v
+                        stats_local["n_adj_acum"] += n_a
+                        status_box.info(
+                            f"✅ {fecha}: +{n_v} vigentes / +{n_a} adjudicadas · "
+                            f"Total acumulado: {stats_local['n_vig_acum']:,} vig / {stats_local['n_adj_acum']:,} adj"
+                        )
+                    elif status == "saltado":
+                        status_box.caption(f"⏭️ {fecha}: ya descargado, saltado")
+                    elif status.startswith("error"):
+                        stats_local["errores"] += 1
+                        status_box.warning(f"⚠️ {fecha}: {status}")
+                
+                try:
+                    res_descarga = descargar_rango(
+                        fecha_inicio=fecha_ini,
+                        fecha_fin=fecha_fin,
+                        incluir_vigentes=incluir_vig,
+                        incluir_adjudicadas=incluir_adj,
+                        saltar_descargados=saltar_done,
+                        progress_callback=cb,
+                    )
+                    progress_bar.progress(1.0, text="✅ Descarga completa")
+                    st.success(
+                        f"🎉 Descarga histórica completa · "
+                        f"{res_descarga['dias_procesados']} días procesados · "
+                        f"{res_descarga['dias_saltados']} saltados · "
+                        f"{res_descarga['total_vigentes']:,} vigentes + {res_descarga['total_adjudicadas']:,} adjudicadas en BD"
+                    )
+                    if res_descarga.get('dias_con_error', 0) > 0:
+                        st.warning(f"⚠️ {res_descarga['dias_con_error']} días con error. Puedes reintentar.")
+                except Exception as e:
+                    st.error(f"❌ Error en descarga: {e}")
     
-    with col_sync2:
-        st.write("")
-        st.write("")
-        if st.button("🔄 Sincronizar", use_container_width=True, type="primary", key="sync_dashboard_v14"):
+    # Sync rápido normal
+    with st.expander("📡 Sincronización rápida (último día)", expanded=False):
+        st.caption("Trae solo las licitaciones del día actual. Rápido (~10 segundos). Para incremental diario.")
+        if st.button("🔄 Sincronizar último día", use_container_width=True, key="btn_sync_rapido"):
             try:
                 from app.core.descarga_diaria import ejecutar_descarga
-                with st.spinner(f"Descargando licitaciones de los últimos {sync_dias} días..."):
-                    res = ejecutar_descarga(dias_atras=sync_dias)
-                    st.success(f"✅ {res['nuevas']} nuevas · {res['categorizadas_aidu']} con match AIDU")
-                    st.rerun()
+                with st.spinner("Sincronizando..."):
+                    res = ejecutar_descarga(dias_atras=1)
+                    st.success(f"✅ {res.get('nuevas', 0)} nuevas · {res.get('actualizadas', 0)} actualizadas · {res.get('categorizadas_aidu', 0)} con match AIDU")
             except Exception as e:
                 st.error(f"Error: {e}")
-    
-    # Estado en vivo
-    try:
-        from app.core.descarga_diaria import stats_vigentes
-        st_vig = stats_vigentes()
-        
-        col_h1, col_h2, col_h3, col_h4 = st.columns(4)
-        col_h1.metric("📡 Vigentes total", f"{st_vig['total_vigentes']:,}", help="Licitaciones publicadas que aún no cierran. Se actualizan al sincronizar.")
-        col_h2.metric("🟢 Publicadas 24h", st_vig["publicadas_24h"], help="Licitaciones publicadas en las últimas 24 horas.")
-        col_h3.metric("🔴 Cierran ≤3d", st_vig["cierran_proximos_3_dias"], help="Licitaciones que cierran en los próximos 3 días. Si te interesan, debes ofertar pronto.")
-        
-        # Match AIDU: explicar qué es y por qué puede ser 0
-        col_h4.metric(
-            "🎯 Match AIDU",
-            st_vig["con_match_aidu"],
-            help=(
-                "Licitaciones cuya descripción matchea con tus servicios AIDU (CE-01 a CE-06, GP-04, etc.). "
-                "Si es 0: o no se ha corrido categorización masiva, o no hay vigentes que matcheen tu perfil. "
-                "Tip: ve a Buscar — usa el filtro por categoría manualmente para ver más opciones."
-            )
-        )
-        
-        if st_vig["con_match_aidu"] == 0 and st_vig["total_vigentes"] > 0:
-            st.info(
-                "💡 **¿Por qué Match AIDU = 0?** La categorización automática (que detecta si una licitación matchea tus servicios) "
-                "aún no se ha corrido sobre las licitaciones nuevas. Ve a la sección **Buscar** y usa los filtros manualmente — "
-                "ahí verás todas las oportunidades disponibles."
-            )
-    except Exception:
-        st.info("Configura el ticket de Mercado Público en Sistema para activar la sincronización automática.")
-    
-    st.divider()
-    
-    # ================== SECCIÓN 4: PIPELINE FINANCIERO CON EXPLICACIÓN ==================
-    st.markdown("##### 💰 Pipeline financiero")
-    
-    with st.expander("💡 ¿Cómo se calcula el pipeline?", expanded=False):
-        st.markdown("""
-**Pipeline total**: Suma del monto referencial de TODOS tus proyectos activos (Cartera + Estudio + Ofertar + Subir).
-
-**Valor esperado**: Pipeline ponderado por probabilidad de cierre según etapa:
-- 📂 Cartera: 10% probabilidad
-- 🔬 Estudio: 25% probabilidad
-- 📝 Ofertar: 50% probabilidad
-- 📤 Subir: 75% probabilidad
-
-**Ingresos proyectados**: Valor esperado × margen objetivo configurado (default 22%).
-
-⚠️ Estos números son **proyecciones estadísticas**, no certezas. Mientras más histórico real tengas en AIDU, más se calibran.
-""")
-    
-    try:
-        from app.core.inteligencia_avanzada import forecast_pipeline_90d
-        f = forecast_pipeline_90d()
-        
-        cm1, cm2, cm3 = st.columns(3)
-        cm1.metric(
-            "Pipeline total",
-            formato_clp(f["valor_pipeline_total_clp"]),
-            help="Suma de monto referencial de proyectos activos en tu embudo (Cartera + Estudio + Ofertar + Subir)."
-        )
-        cm2.metric(
-            "Valor esperado",
-            formato_clp(f["valor_esperado_clp"]),
-            help="Pipeline ponderado por probabilidad de cierre según etapa (10/25/50/75%)."
-        )
-        cm3.metric(
-            "Ingresos proyectados",
-            formato_clp(f["ingresos_esperados_clp"]),
-            help=f"Valor esperado × margen objetivo {f['margen_aplicado_pct']:.0f}%."
-        )
-    except Exception:
-        st.caption("📭 Pipeline disponible cuando tengas proyectos activos.")
-    
-    st.divider()
-    
-    # ================== SECCIÓN 5: ÚLTIMAS OPORTUNIDADES (MEJORADO) ==================
-    col_ult_t, col_ult_b = st.columns([3, 1])
-    col_ult_t.markdown("##### 🆕 Últimas oportunidades publicadas en MP")
-    col_ult_t.caption("Las 5 más recientes ordenadas por fecha. Click 'Ver en MP' o 'Ver ficha' para detalles.")
-    
-    try:
-        from app.core.descarga_diaria import listar_vigentes
-        ultimas = listar_vigentes(limit=5)
-        
-        with col_ult_b:
-            if st.button("Ver todas →", use_container_width=True, key="ver_todas_ops_dashboard"):
-                st.query_params["nav"] = "buscar"
-                st.rerun()
-        
-        if not ultimas:
-            st.caption("📭 Sin licitaciones nuevas en BD. Click '🔄 Sincronizar' arriba.")
-        else:
-            for v in ultimas:
-                dias_cierre = v.get("dias_para_cierre")
-                if dias_cierre is not None and dias_cierre <= 3:
-                    border_color = "#C2410C"
-                    urgencia = f"🔴 Cierra en {dias_cierre}d"
-                elif dias_cierre is not None and dias_cierre <= 7:
-                    border_color = "#D97706"
-                    urgencia = f"🟡 Cierra en {dias_cierre}d"
-                elif dias_cierre is not None:
-                    border_color = "#15803D"
-                    urgencia = f"🟢 Cierra en {dias_cierre}d"
-                else:
-                    border_color = "#94A3B8"
-                    urgencia = "Sin fecha cierre"
-                
-                cat_aidu = v.get("cod_servicio_aidu") or "—"
-                organismo_v = v.get("organismo") or "—"
-                region_v = v.get("region") or "—"
-                monto_v = v.get("monto_referencial") or 0
-                url_mp_v = url_licitacion_mp(v['codigo_externo'])
-                
-                # Card mejorado con MUCHO más contexto
-                st.markdown(
-                    f"<div class='aidu-card' style='border-left:4px solid {border_color};'>"
-                    f"<div style='display:flex; justify-content:space-between; align-items:start; gap:16px;'>"
-                    f"<div style='flex:1; min-width:0;'>"
-                    f"<div style='display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;'>"
-                    f"<span class='aidu-pill aidu-pill-blue'>{cat_aidu}</span>"
-                    f"<span style='font-family:JetBrains Mono,monospace; font-size:11px; color:#94A3B8; padding:2px 0;'>{v['codigo_externo']}</span>"
-                    f"</div>"
-                    f"<div style='font-size:14px; font-weight:600; color:#0F172A; margin-bottom:6px; line-height:1.4;'>{v['nombre']}</div>"
-                    f"<div style='font-size:12px; color:#64748B;'>"
-                    f"🏛️ {organismo_v} · 📍 {region_v}"
-                    f"</div>"
-                    f"</div>"
-                    f"<div style='text-align:right; min-width:170px;'>"
-                    f"<div style='font-size:10px; color:#64748B; text-transform:uppercase; letter-spacing:0.5px;'>Monto referencial</div>"
-                    f"<div style='font-size:18px; font-weight:700; color:#1E40AF;'>{formato_clp(monto_v) if monto_v else '—'}</div>"
-                    f"<div style='font-size:11px; color:{border_color}; font-weight:600; margin:4px 0;'>{urgencia}</div>"
-                    f"<a href='{url_mp_v}' target='_blank' style='display:inline-block; padding:5px 12px; background:#1E40AF; color:white; border-radius:6px; text-decoration:none; font-size:11px; font-weight:600;'>🔗 Ver en MP</a>"
-                    f"</div>"
-                    f"</div>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
-    except Exception:
-        pass
 
 
-
+# ============================================================
+# TAB: 🔥 HOY (LEGACY - ya no usado, se redirige a Dashboard)
+# ============================================================
 # ============================================================
 # TAB: 🔥 HOY (LEGACY - ya no usado, se redirige a Dashboard)
 # ============================================================
@@ -4170,19 +4307,27 @@ if tab_buscar:
                             except Exception as e:
                                 st.error(f"Error: {e}")
                         
-                        # Acceso a Mercado Público: copia código al portapapeles + abre MP
-                        # MP nuevo es una SPA sin params en URL; el usuario pega el código en el buscador.
-                        mp_url = url_licitacion_mp(op['codigo_externo'])
+                        # Acceso a Mercado Público
+                        # Usamos la URL canónica si la API la entregó (mejor caso),
+                        # fallback a idlicitacion= que funciona para licitaciones recientes.
+                        url_canonica_op = op.get('url_mp_canonica')
+                        mp_url = url_licitacion_mp(op['codigo_externo'], url_canonica_op)
                         codigo_op = op['codigo_externo']
+                        
+                        # Indicador visual: si tenemos URL canónica, ✓ verde; si no, ⚠️ amber
+                        if url_canonica_op:
+                            badge_url = "<span style='color:#059669; font-size:9px;'>✓ Acceso directo</span>"
+                        else:
+                            badge_url = "<span style='color:#D97706; font-size:9px;'>⚠ Acceso por código</span>"
+                        
                         st.markdown(
                             f"""
-                            <button onclick="navigator.clipboard.writeText('{codigo_op}'); window.open('{mp_url}', '_blank');"
-                                    style='width:100%; padding:8px 10px; margin-top:8px; background:linear-gradient(135deg, #1D4ED8 0%, #1E3A8A 100%); color:white; border:none; border-radius:8px; cursor:pointer; font-size:11px; font-weight:600; box-shadow:0 1px 3px rgba(29,78,216,0.3); transition:all 150ms;'
-                                    onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(29,78,216,0.4)';"
-                                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(29,78,216,0.3)';">
-                                📋 Copiar código + abrir MP
-                            </button>
-                            <div style='font-size:10px; color:#64748B; text-align:center; margin-top:4px; padding:0 4px;'>Pega <code style='background:#F1F5F9; padding:1px 4px; border-radius:3px; font-size:10px;'>{codigo_op}</code> en el buscador de MP</div>
+                            <a href='{mp_url}' target='_blank' style='display:block; text-decoration:none;'>
+                                <div style='width:100%; padding:8px 10px; margin-top:8px; background:linear-gradient(135deg, #1D4ED8 0%, #1E3A8A 100%); color:white; border-radius:8px; text-align:center; font-size:11px; font-weight:600; box-shadow:0 1px 3px rgba(29,78,216,0.3);'>
+                                    🔗 Ver ficha en Mercado Público
+                                </div>
+                            </a>
+                            <div style='text-align:center; margin-top:4px;'>{badge_url}</div>
                             """,
                             unsafe_allow_html=True
                         )

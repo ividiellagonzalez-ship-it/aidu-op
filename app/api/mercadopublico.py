@@ -196,6 +196,31 @@ class MercadoPublicoClient:
 
         return listado
 
+    def obtener_por_codigo(self, codigo: str) -> Optional[Dict]:
+        """
+        Consulta detallada por código. Retorna información COMPLETA incluyendo
+        - UrlAcceso (URL canónica con qs hash, va directo a la ficha sin login)
+        - Items, Adjudicación, Fechas detalladas
+        - Reclamos, Estado actual
+        
+        Esta consulta es más cara (1 request por código) — usar solo cuando se
+        necesita URL canónica o detalle completo de UNA licitación.
+        """
+        if not codigo:
+            return None
+        
+        params = {"codigo": codigo}
+        data = self._request(params)
+        if not data:
+            return None
+        
+        listado = data.get("Listado", [])
+        if not listado:
+            return None
+        
+        # API retorna lista con un solo elemento
+        return listado[0] if isinstance(listado, list) else listado
+
     def descargar_vigentes_recientes(self, dias_atras: int = 7) -> List[Dict]:
         """
         Descarga todas las licitaciones publicadas en los últimos N días.

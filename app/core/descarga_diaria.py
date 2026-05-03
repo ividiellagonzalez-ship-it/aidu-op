@@ -62,6 +62,15 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
                 ).fetchone()
                 
                 # Mapear campos del API a la BD
+                # Campo URL canónica: la API retorna en consultas detalladas;
+                # en consultas por fecha NO viene siempre. Cuando viene, la guardamos.
+                url_canonica_api = (
+                    lic.get("UrlAcceso") or 
+                    lic.get("urlAcceso") or 
+                    lic.get("url_acceso") or
+                    None
+                )
+                
                 datos = {
                     "codigo_externo": codigo,
                     "nombre": lic.get("Nombre") or lic.get("nombre", ""),
@@ -76,18 +85,21 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
                     "monto_referencial": lic.get("MontoEstimado") or lic.get("monto_referencial") or 0,
                     "moneda": lic.get("Moneda", "CLP"),
                     "estado": "publicada",
+                    "url_mp_canonica": url_canonica_api,
                     "raw_json": json.dumps(lic, ensure_ascii=False),
                 }
                 
                 if existe:
-                    # Actualizar
+                    # Actualizar (incluye url_mp_canonica si la API la provee)
                     conn.execute("""
                         UPDATE mp_licitaciones_vigentes
-                        SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?, raw_json=?
+                        SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?, 
+                            url_mp_canonica=COALESCE(?, url_mp_canonica), raw_json=?
                         WHERE codigo_externo=?
                     """, (
                         datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
-                        datos["monto_referencial"], datos["raw_json"], codigo
+                        datos["monto_referencial"], datos["url_mp_canonica"], 
+                        datos["raw_json"], codigo
                     ))
                     actualizadas += 1
                 else:
@@ -96,15 +108,15 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
                         INSERT INTO mp_licitaciones_vigentes (
                             codigo_externo, nombre, descripcion, organismo, organismo_codigo,
                             region, comuna, tipo, fecha_publicacion, fecha_cierre,
-                            monto_referencial, moneda, estado, raw_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            monto_referencial, moneda, estado, url_mp_canonica, raw_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         datos["codigo_externo"], datos["nombre"], datos["descripcion"],
                         datos["organismo"], datos["organismo_codigo"],
                         datos["region"], datos["comuna"], datos["tipo"],
                         datos["fecha_publicacion"], datos["fecha_cierre"],
                         datos["monto_referencial"], datos["moneda"], datos["estado"],
-                        datos["raw_json"]
+                        datos["url_mp_canonica"], datos["raw_json"]
                     ))
                     nuevas += 1
                     
@@ -177,7 +189,7 @@ def listar_vigentes(
                 v.fecha_publicacion, v.fecha_cierre,
                 v.monto_referencial, v.tipo,
                 c.cod_servicio_aidu, c.confianza,
-                v.fecha_descarga,
+                v.fecha_descarga, v.url_mp_canonica,
                 CAST(julianday(v.fecha_cierre) - julianday('now') AS INTEGER) as dias_para_cierre
             FROM mp_licitaciones_vigentes v
             LEFT JOIN mp_categorizacion_aidu c ON c.codigo_externo = v.codigo_externo
