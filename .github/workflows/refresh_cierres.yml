@@ -1,0 +1,71 @@
+name: AIDU Op · Refresh diario cierres ≤7d
+
+on:
+  schedule:
+    # 8:00 AM Chile (UTC-4 verano / UTC-3 invierno) → 11:00 UTC promedio
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-cierres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Refresh cierres próximos
+        env:
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+        run: |
+          python -c "
+          import os
+          from app.db.migrator import run_migrations
+          from app.core.refresh_cierres import refresh_cierres_proximos
+          
+          run_migrations()
+          ticket = os.environ.get('MP_TICKET', '')
+          
+          def progress(actual, total, codigo):
+              print(f'[{actual}/{total}] {codigo}', flush=True)
+          
+          stats = refresh_cierres_proximos(
+              ticket=ticket,
+              dias_horizonte=7,
+              progress_callback=progress
+          )
+          
+          print('=' * 50)
+          print(f'Total revisados: {stats[\"total_revisados\"]}')
+          print(f'Actualizadas:    {stats[\"actualizadas\"]}')
+          print(f'Sin cambios:     {stats[\"sin_cambios\"]}')
+          print(f'Pasaron a adj:   {stats[\"pasaron_a_adjudicada\"]}')
+          print(f'Cambios detect.: {stats[\"cambios_detectados\"]}')
+          print(f'Fallidas:        {stats[\"fallidas\"]}')
+          "
+      
+      - name: Commit BD si hay cambios
+        run: |
+          git config user.name "AIDU Op Bot"
+          git config user.email "bot@aidu.op"
+          git add -f data/aidu.db 2>/dev/null || echo "(no hay BD que commitear)"
+          if git diff --cached --quiet; then
+            echo "Sin cambios en BD"
+          else
+            git commit -m "🔄 Refresh diario cierres [bot]"
+            git push
+          fi

@@ -53,7 +53,34 @@ def _ensure_migrations_applied():
         return False
 
 
+@st.cache_resource
+def _enriquecer_bd_inicial():
+    """
+    Enriquece BD desde raw_json al primer arranque (v18).
+    Solo se ejecuta si las tablas relacionales están vacías.
+    No consume API. Idempotente.
+    """
+    try:
+        from app.core.enriquecimiento import stats_enriquecimiento, enriquecer_todo
+        stats = stats_enriquecimiento()
+        # Si ya hay items o adjudicaciones, no re-procesar
+        if stats.get("n_items", 0) > 0 or stats.get("n_adjudicaciones", 0) > 0:
+            return True
+        # Si solo hay organismos (extraídos antes) y no hay licitaciones, skip
+        if stats.get("n_licitaciones_total", 0) == 0:
+            return True
+        # Procesar
+        res = enriquecer_todo()
+        print(f"🔧 Enriquecimiento auto: {res.get('procesados', 0)} licitaciones procesadas, "
+              f"{res.get('proveedores_unicos', 0)} proveedores, {res.get('organismos_unicos', 0)} organismos")
+        return True
+    except Exception as e:
+        print(f"⚠️ Error en enriquecimiento auto: {e}")
+        return False
+
+
 _ensure_migrations_applied()
+_enriquecer_bd_inicial()
 
 
 # ============================================================
@@ -1325,6 +1352,38 @@ def get_url_canonica_db(codigo: str) -> str:
     return None
 
 
+def get_url_canonica_lazy(codigo: str, ticket: str = None) -> str:
+    """
+    Lazy: si la URL está en BD la retorna, si no consulta API y la persiste.
+    Usa app/core/refresh_cierres.obtener_url_canonica_lazy bajo el capó.
+    
+    Falla gracioso: si no hay ticket o la API no responde, retorna URL legacy.
+    """
+    # 1) BD primero
+    url = get_url_canonica_db(codigo)
+    if url:
+        return url
+    
+    # 2) Si no hay ticket, ni intentar API
+    import os
+    if ticket is None:
+        ticket = os.environ.get("MP_TICKET", "")
+    if not ticket:
+        return url_licitacion_mp(codigo)
+    
+    # 3) Lazy API call
+    try:
+        from app.core.refresh_cierres import obtener_url_canonica_lazy as _obt
+        url = _obt(codigo, ticket=ticket)
+        if url:
+            return url
+    except Exception:
+        pass
+    
+    # 4) Fallback final: URL legacy del buscador
+    return url_licitacion_mp(codigo)
+
+
 # ============================================================
 # VISTA DE DETALLE DEL PROYECTO
 # ============================================================
@@ -1722,6 +1781,51 @@ def render_detalle_proyecto(proyecto_id: int):
             )
         except Exception as e:
             st.caption(f"Posicionamiento no disponible: {e}")
+        
+        # ============================================
+        # 🎯 TU COMPETENCIA HISTÓRICA EN ESTE NICHO
+        # ============================================
+        st.divider()
+        st.markdown("##### 🎯 Tu competencia histórica en este nicho")
+        st.caption("Proveedores que han ganado licitaciones similares (mismo organismo, región o categoría AIDU). Conócelos antes de ofertar.")
+        
+        try:
+            from app.core.competencia import competidores_para_licitacion
+            comp_lic = competidores_para_licitacion(p["codigo_externo"], limit=10)
+            
+            if comp_lic:
+                tabla_comp_lic = []
+                for i, c in enumerate(comp_lic, 1):
+                    tabla_comp_lic.append({
+                        "#": i,
+                        "Proveedor": c["nombre"][:45] + ("..." if len(c["nombre"]) > 45 else ""),
+                        "Veces ganadas": c["n_ganadas"],
+                        "Monto total": f"${c['monto_total']/1_000_000:,.1f} MM",
+                        "Ticket prom.": f"${c['ticket_promedio']/1_000_000:,.1f} MM",
+                        "Última adj.": c["ultima_adjudicacion"][:10] if c["ultima_adjudicacion"] else "—",
+                    })
+                st.dataframe(tabla_comp_lic, use_container_width=True, hide_index=True)
+                
+                # Análisis cualitativo
+                top_n_ganadas = comp_lic[0]["n_ganadas"] if comp_lic else 0
+                if top_n_ganadas >= 5:
+                    señal_comp = "🟠 **Hay un proveedor recurrente con muchas adjudicaciones** — ventaja competitiva del incumbente. Prepara una propuesta diferenciada."
+                elif top_n_ganadas >= 2:
+                    señal_comp = "🟡 **Competencia presente** pero distribuida — todavía hay espacio para AIDU si se posiciona bien."
+                else:
+                    señal_comp = "🟢 **Mercado abierto** — sin proveedor dominante, oportunidad real para AIDU."
+                
+                st.markdown(
+                    f"<div style='background:#F8FAFC; border-left:3px solid #7C3AED; padding:12px 16px; border-radius:8px; margin-top:10px; font-size:13px; color:#334155;'>"
+                    f"<div><strong>🎯 Lectura competitiva:</strong></div>"
+                    f"<div style='margin-top:6px;'>{señal_comp}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            else:
+                st.caption("📭 Sin histórico de competidores para este nicho. Descarga histórico API para activar.")
+        except Exception as e:
+            st.caption(f"Competencia no disponible: {e}")
     
     # ============================================================
     # TAB FUSIONADO: 📊 ANÁLISIS ECONÓMICO
@@ -2623,6 +2727,65 @@ if tab_dashboard:
     </div>
     """, unsafe_allow_html=True)
     
+    # ================== SEMÁFORO SALUD BD ==================
+    try:
+        from app.core.salud_bd import estado_global as _salud_global
+        salud = _salud_global()
+        
+        cob = salud["cobertura"]
+        fre = salud["frescura"]
+        cal = salud["calidad"]
+        
+        st.markdown(f"""
+        <div style="background:white; border:2px solid {salud['global_color']}; padding:14px 20px; border-radius:12px; margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <div style="font-size:16px; font-weight:800; color:{salud['global_color']};">
+                    {salud['global_emoji']} {salud['global_texto']}
+                </div>
+                <div style="font-size:11px; color:#64748B;">
+                    Última verificación: {fre.get('texto', '—')}
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:8px;">
+                <div style="font-size:12px; color:#475569;">
+                    <strong>{cob['semaforo']} Cobertura</strong> · <span style="font-family:'JetBrains Mono';">{cob['pct']}%</span><br>
+                    <span style="color:#94A3B8; font-size:11px;">{cob['dias_con_data']}/{cob['dias_total']} días con datos</span>
+                </div>
+                <div style="font-size:12px; color:#475569;">
+                    <strong>{fre['semaforo']} Frescura</strong> · <span style="font-family:'JetBrains Mono';">{fre.get('texto', '—')}</span><br>
+                    <span style="color:#94A3B8; font-size:11px;">desde último sync</span>
+                </div>
+                <div style="font-size:12px; color:#475569;">
+                    <strong>{cal['semaforo']} Calidad</strong> · <span style="font-family:'JetBrains Mono';">{cal['pct']}%</span><br>
+                    <span style="color:#94A3B8; font-size:11px;">{cal['n_completas']}/{cal['n_total']} con items+proveedor+URL</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander("🔬 Detalle salud BD", expanded=False):
+            col_d1, col_d2, col_d3 = st.columns(3)
+            with col_d1:
+                st.markdown("**Cobertura últimos 365 días**")
+                st.metric("Días con datos", f"{cob['dias_con_data']:,}", f"de {cob['dias_total']:,}")
+                st.caption(f"Umbral: 🟢 ≥85% · 🟡 60-85% · 🔴 <60%")
+            with col_d2:
+                st.markdown("**Frescura del último sync**")
+                if fre.get('horas') is not None:
+                    st.metric("Horas desde sync", f"{fre['horas']:.1f}h")
+                else:
+                    st.metric("Horas desde sync", "Nunca")
+                st.caption(f"Umbral: 🟢 <24h · 🟡 24-72h · 🔴 >72h")
+            with col_d3:
+                st.markdown("**Calidad del enriquecimiento**")
+                det = cal.get('detalle', {})
+                st.caption(f"Con items: {det.get('pct_items', 0)}%")
+                st.caption(f"Con proveedor: {det.get('pct_proveedor', 0)}%")
+                st.caption(f"Con URL canónica: {det.get('pct_url', 0)}%")
+                st.caption(f"Umbral global: 🟢 ≥75% · 🟡 50-75% · 🔴 <50%")
+    except Exception as e:
+        st.caption(f"⚠️ Salud BD no disponible: {e}")
+    
     # ================== CARGA DE DATOS DE INTELIGENCIA ==================
     try:
         from app.core.inteligencia_mercado import (
@@ -2844,6 +3007,78 @@ if tab_dashboard:
             st.dataframe(tabla_orgs, use_container_width=True, hide_index=True)
         else:
             st.info("Sin organismos en BD para el período. Descarga histórico para activar.")
+    
+    st.divider()
+    
+    # ================== INTELIGENCIA DE COMPETENCIA ==================
+    st.markdown("##### 🎯 Inteligencia de competencia · tu nicho")
+    st.caption("Quiénes son tus competidores directos en categorías y regiones AIDU. Tu arma comercial.")
+    
+    try:
+        from app.core.competencia import (
+            stats_competencia, competencia_directa_aidu, patron_favoritismo
+        )
+        
+        comp_stats = stats_competencia()
+        n_prov_total = comp_stats.get("n_proveedores_totales", 0)
+        
+        if n_prov_total == 0:
+            st.info("📭 Sin proveedores en BD. Ejecuta una descarga histórica con la API real para activar la inteligencia de competencia.")
+        else:
+            # KPI cards
+            col_c1, col_c2, col_c3 = st.columns(3)
+            with col_c1:
+                st.metric("Proveedores en BD", f"{n_prov_total:,}", help="Universo total de proveedores que han ganado licitaciones")
+            with col_c2:
+                st.metric("Patrones de favoritismo", comp_stats.get("patron_favoritismo_n", 0), 
+                          help="Pares organismo-proveedor con ≥3 adjudicaciones repetidas")
+            with col_c3:
+                top1 = comp_stats.get("top_3_por_n_adj", [])
+                top_nombre = top1[0]["nombre"][:25] if top1 else "—"
+                top_n = top1[0]["n"] if top1 else 0
+                st.metric("Líder mercado", top_nombre, f"{top_n} adj.", help="Proveedor con más adjudicaciones")
+            
+            # Competencia directa AIDU (sin filtros = todo perímetro AIDU)
+            st.markdown("**🔥 Competencia directa AIDU** (proveedores que ganan en TUS categorías)")
+            
+            comp_directa = competencia_directa_aidu(limit=10)
+            if comp_directa:
+                tabla_comp = []
+                for i, c in enumerate(comp_directa, 1):
+                    tabla_comp.append({
+                        "#": i,
+                        "Proveedor": c["nombre"][:45] + ("..." if len(c["nombre"]) > 45 else ""),
+                        "RUT": c["rut"],
+                        "Adjudicaciones": f"{c['n_adjudicaciones']:,}",
+                        "Monto total": f"${c['monto_total']/1_000_000:,.1f} MM",
+                        "Ticket prom.": f"${c['ticket_promedio']/1_000_000:,.1f} MM",
+                        "Categorías": ", ".join([x for x in c["categorias"] if x][:3]),
+                        "Organismos": c["n_organismos_distintos"],
+                    })
+                st.dataframe(tabla_comp, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Sin competencia directa identificada en perímetro AIDU.")
+            
+            # Patrones de favoritismo
+            with st.expander("🔍 Patrones de favoritismo detectados (organismo ↔ proveedor recurrente)", expanded=False):
+                fav = patron_favoritismo(min_repeticiones=3, limit=15)
+                if fav:
+                    tabla_fav = []
+                    for f in fav:
+                        tabla_fav.append({
+                            "Organismo": f["organismo"][:40] + ("..." if len(f["organismo"]) > 40 else ""),
+                            "Proveedor": f["nombre_proveedor"][:35] + ("..." if len(f["nombre_proveedor"]) > 35 else ""),
+                            "Veces": f["n_veces"],
+                            "Monto acum.": f"${f['monto_acumulado']/1_000_000:,.0f} MM",
+                            "Desde": f["desde"][:10] if f["desde"] else "—",
+                            "Hasta": f["hasta"][:10] if f["hasta"] else "—",
+                        })
+                    st.dataframe(tabla_fav, use_container_width=True, hide_index=True)
+                    st.caption("⚠️ Estos pares organismo-proveedor pueden indicar relación recurrente. Útil para identificar barreras de entrada o competidores establecidos.")
+                else:
+                    st.caption("Sin patrones detectados aún. Se requiere histórico mayor.")
+    except Exception as e:
+        st.warning(f"⚠️ Inteligencia de competencia no disponible: {e}")
     
     st.divider()
     
@@ -3872,6 +4107,24 @@ if tab_buscar:
     with col_filtros:
         st.markdown("##### 🔧 Filtros")
         
+        # ============ MIS NICHOS (búsquedas guardadas) ============
+        if "aidu_nichos_guardados" not in st.session_state:
+            st.session_state["aidu_nichos_guardados"] = {}
+        
+        nichos = st.session_state["aidu_nichos_guardados"]
+        if nichos:
+            with st.expander(f"💎 Mis nichos guardados ({len(nichos)})", expanded=False):
+                for nicho_nombre in list(nichos.keys()):
+                    col_n1, col_n2 = st.columns([3, 1])
+                    if col_n1.button(f"📌 {nicho_nombre}", key=f"load_nicho_{nicho_nombre}", use_container_width=True):
+                        # Cargar valores en session_state
+                        for k, v in nichos[nicho_nombre].items():
+                            st.session_state[k] = v
+                        st.rerun()
+                    if col_n2.button("🗑️", key=f"del_nicho_{nicho_nombre}", help=f"Eliminar nicho '{nicho_nombre}'"):
+                        del nichos[nicho_nombre]
+                        st.rerun()
+        
         # 🆕 Presets rápidos
         st.caption("⚡ Presets rápidos")
         col_p1, col_p2 = st.columns(2)
@@ -3965,6 +4218,85 @@ if tab_buscar:
             help=f"Filtrar por uno o más mandantes. {len(organismos_lista)} organismos disponibles. Vacío = todos."
         )
 
+        # ============ NUEVOS FILTROS v18 ============
+        
+        # === Proveedores (competencia directa) ===
+        @st.cache_data(ttl=120)
+        def _cached_proveedores():
+            try:
+                conn_p = get_connection()
+                rows = conn_p.execute("""
+                    SELECT rut, nombre, n_adjudicaciones, monto_total_adjudicado 
+                    FROM mp_proveedores 
+                    WHERE nombre IS NOT NULL AND nombre != ''
+                    ORDER BY n_adjudicaciones DESC
+                    LIMIT 500
+                """).fetchall()
+                conn_p.close()
+                return [(r["rut"], r["nombre"], r["n_adjudicaciones"]) for r in rows]
+            except Exception:
+                return []
+        
+        proveedores_lista = _cached_proveedores()
+        if proveedores_lista:
+            prov_options = [p[0] for p in proveedores_lista]
+            prov_format_map = {p[0]: f"{p[1][:50]} · {p[2]} adj." for p in proveedores_lista}
+            prov_seleccionados = st.multiselect(
+                "🏢 Proveedores (competencia)",
+                options=prov_options,
+                format_func=lambda r: prov_format_map.get(r, r),
+                key="op_prov",
+                help=f"Filtra licitaciones donde participaron estos proveedores. {len(proveedores_lista)} en BD."
+            )
+        else:
+            prov_seleccionados = []
+            st.caption("ℹ️ Proveedores: pendiente de descarga histórica con data real")
+        
+        # === Tipos de servicio (UNSPSC) ===
+        @st.cache_data(ttl=120)
+        def _cached_unspsc():
+            try:
+                conn_u = get_connection()
+                rows = conn_u.execute("""
+                    SELECT codigo_unspsc, MAX(nombre_producto) AS nombre, COUNT(*) AS n
+                    FROM mp_licitaciones_items
+                    WHERE codigo_unspsc IS NOT NULL AND codigo_unspsc != ''
+                    GROUP BY codigo_unspsc
+                    ORDER BY n DESC
+                    LIMIT 200
+                """).fetchall()
+                conn_u.close()
+                return [(r["codigo_unspsc"], r["nombre"], r["n"]) for r in rows]
+            except Exception:
+                return []
+        
+        unspsc_lista = _cached_unspsc()
+        if unspsc_lista:
+            unspsc_options = [u[0] for u in unspsc_lista]
+            unspsc_format_map = {u[0]: f"{u[0]} · {u[1][:40]} ({u[2]})" for u in unspsc_lista}
+            unspsc_seleccionados = st.multiselect(
+                "🔧 Tipos de servicio (UNSPSC)",
+                options=unspsc_options,
+                format_func=lambda c: unspsc_format_map.get(c, c),
+                key="op_unspsc",
+                help="Códigos ONU estándar de productos/servicios."
+            )
+        else:
+            unspsc_seleccionados = []
+        
+        # === Rango de fechas ===
+        st.caption("📅 Fecha publicación (opcional)")
+        col_fp1, col_fp2 = st.columns(2)
+        from datetime import datetime as _dt_filt, timedelta as _td_filt
+        fecha_pub_desde = col_fp1.date_input(
+            "Desde", value=None, key="op_fp_desde",
+            label_visibility="collapsed", format="DD/MM/YYYY"
+        )
+        fecha_pub_hasta = col_fp2.date_input(
+            "Hasta", value=None, key="op_fp_hasta",
+            label_visibility="collapsed", format="DD/MM/YYYY"
+        )
+
         # Monto - SIN restricción por defecto
         st.caption("💰 Monto referencial (M CLP) · 0 = sin filtro")
         col_min, col_max = st.columns(2)
@@ -3999,6 +4331,29 @@ if tab_buscar:
             "Solo no-en-cartera", value=True, key="op_no_cart",
             help="Excluye licitaciones que ya tienes como proyecto AIDU"
         )
+        
+        # === Guardar como nicho ===
+        st.divider()
+        with st.expander("💾 Guardar búsqueda como nicho", expanded=False):
+            nuevo_nicho_nombre = st.text_input(
+                "Nombre del nicho",
+                placeholder="ej: Estructural V Región sweet spot",
+                key="op_nuevo_nicho"
+            )
+            if st.button("💾 Guardar nicho", use_container_width=True, key="btn_guardar_nicho"):
+                if nuevo_nicho_nombre and nuevo_nicho_nombre.strip():
+                    # Capturar valores actuales de los filtros
+                    nicho_data = {}
+                    for k in ["op_busqueda", "op_cats_multi", "op_regs_multi", "op_org",
+                              "op_prov", "op_unspsc", "op_min", "op_max", "op_score",
+                              "op_orden", "op_no_cart"]:
+                        if k in st.session_state:
+                            nicho_data[k] = st.session_state[k]
+                    st.session_state["aidu_nichos_guardados"][nuevo_nicho_nombre.strip()] = nicho_data
+                    st.success(f"✅ Nicho '{nuevo_nicho_nombre}' guardado")
+                    st.rerun()
+                else:
+                    st.warning("Ingresa un nombre")
 
     # ----- Resultados -----
     with col_resultados:
@@ -4072,6 +4427,58 @@ if tab_buscar:
             oportunidades = [
                 op for op in oportunidades
                 if (op.get("organismo") or "") in orgs_set
+            ]
+        
+        # ============ NUEVOS FILTROS v18 (basados en tablas relacionales) ============
+        
+        # Filtro por proveedor: cruzar contra mp_adjudicaciones
+        if prov_seleccionados:
+            try:
+                conn_pf = get_connection()
+                ruts_str = ",".join(["?"] * len(prov_seleccionados))
+                rows_codigos = conn_pf.execute(
+                    f"SELECT DISTINCT codigo_externo FROM mp_adjudicaciones WHERE rut_proveedor IN ({ruts_str})",
+                    list(prov_seleccionados)
+                ).fetchall()
+                conn_pf.close()
+                codigos_con_prov = {r["codigo_externo"] for r in rows_codigos}
+                oportunidades = [
+                    op for op in oportunidades
+                    if op.get("codigo_externo") in codigos_con_prov
+                ]
+            except Exception as e:
+                st.warning(f"No se pudo aplicar filtro proveedores: {e}")
+        
+        # Filtro por UNSPSC: cruzar contra mp_licitaciones_items
+        if unspsc_seleccionados:
+            try:
+                conn_uf = get_connection()
+                unspsc_str = ",".join(["?"] * len(unspsc_seleccionados))
+                rows_unspsc = conn_uf.execute(
+                    f"SELECT DISTINCT codigo_externo FROM mp_licitaciones_items WHERE codigo_unspsc IN ({unspsc_str})",
+                    list(unspsc_seleccionados)
+                ).fetchall()
+                conn_uf.close()
+                codigos_con_unspsc = {r["codigo_externo"] for r in rows_unspsc}
+                oportunidades = [
+                    op for op in oportunidades
+                    if op.get("codigo_externo") in codigos_con_unspsc
+                ]
+            except Exception as e:
+                st.warning(f"No se pudo aplicar filtro UNSPSC: {e}")
+        
+        # Filtro por rango de fechas de publicación
+        if fecha_pub_desde:
+            f_desde_iso = fecha_pub_desde.isoformat()
+            oportunidades = [
+                op for op in oportunidades
+                if (op.get("fecha_publicacion") or "") >= f_desde_iso
+            ]
+        if fecha_pub_hasta:
+            f_hasta_iso = fecha_pub_hasta.isoformat()
+            oportunidades = [
+                op for op in oportunidades
+                if (op.get("fecha_publicacion") or "") <= f_hasta_iso
             ]
 
         if not oportunidades:

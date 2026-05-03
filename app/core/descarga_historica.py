@@ -73,17 +73,69 @@ def _parse_fecha(s):
     return s[:10] if len(s) >= 10 else None
 
 
-def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vigentes") -> Dict:
+def _registrar_cambio_historial(conn, codigo: str, campo: str, valor_ant, valor_nuevo, hash_ant: str, hash_nuevo: str, fuente_cambio: str):
+    """Persiste un cambio detectado en mp_historial_cambios."""
+    try:
+        conn.execute("""
+            INSERT INTO mp_historial_cambios
+            (codigo_externo, campo, valor_anterior, valor_nuevo, hash_anterior, hash_nuevo, fuente_cambio)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            codigo, campo,
+            str(valor_ant) if valor_ant is not None else None,
+            str(valor_nuevo) if valor_nuevo is not None else None,
+            hash_ant, hash_nuevo, fuente_cambio
+        ))
+    except Exception as e:
+        logger.warning(f"No se pudo registrar cambio en historial para {codigo}.{campo}: {e}")
+
+
+def _detectar_cambios(antiguo: dict, nuevo: dict, campos_monitoreados: list) -> list:
     """
-    Persiste un batch de licitaciones en la tabla indicada.
-    tabla = 'mp_licitaciones_vigentes' o 'mp_licitaciones_adj'
+    Compara valores antiguo vs nuevo en los campos monitoreados.
+    Retorna lista de tuplas (campo, valor_ant, valor_nuevo) para los que cambiaron.
+    """
+    cambios = []
+    for campo in campos_monitoreados:
+        val_ant = antiguo.get(campo) if isinstance(antiguo, dict) else getattr(antiguo, campo, None)
+        val_nuevo = nuevo.get(campo)
+        # Normalizar para comparación: None == "" == 0 son distintos
+        if val_ant != val_nuevo:
+            # Excepto si ambos son falsy "vacíos" (None, "", 0)
+            if (val_ant in (None, "", 0)) and (val_nuevo in (None, "", 0)):
+                continue
+            cambios.append((campo, val_ant, val_nuevo))
+    return cambios
+
+
+def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vigentes", fuente: str = "api_diaria") -> Dict:
+    """
+    UPSERT con merge inteligente:
+    1. Si NO existe → INSERT con hash + fuente
+    2. Si SÍ existe:
+       - Calcular hash nuevo
+       - Si hash difiere → detectar campos cambiados, registrar diff en historial,
+         luego UPDATE
+       - Si hash igual → skip silencioso (no escribimos nada, no contamos)
+    
+    Tras INSERT/UPDATE → llamar enriquecer_codigo() para repoblar tablas relacionales.
     """
     if not licitaciones_raw:
-        return {"nuevas": 0, "actualizadas": 0, "fallidas": 0}
+        return {"nuevas": 0, "actualizadas": 0, "sin_cambios": 0, "fallidas": 0, "cambios_detectados": 0}
+    
+    # Import lazy para evitar circulares
+    from app.core.enriquecimiento import enriquecer_codigo, _hash_raw
     
     nuevas = 0
     actualizadas = 0
+    sin_cambios = 0
     fallidas = 0
+    cambios_detectados = 0
+    
+    # Campos cuyo cambio es relevante para auditar
+    campos_monitoreados_vigentes = ["nombre", "monto_referencial", "fecha_cierre", "estado"]
+    campos_monitoreados_adj = ["nombre", "monto_adjudicado", "fecha_adjudicacion", "n_oferentes", "estado"]
+    campos_monitoreados = campos_monitoreados_adj if tabla == "mp_licitaciones_adj" else campos_monitoreados_vigentes
     
     conn = get_connection()
     try:
@@ -94,9 +146,13 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
                     fallidas += 1
                     continue
                 
-                # Verificar si existe
+                # Calcular hash del raw nuevo
+                raw_str_nuevo = json.dumps(lic, ensure_ascii=False)
+                hash_nuevo = _hash_raw(raw_str_nuevo)
+                
+                # ¿Existe?
                 existe = conn.execute(
-                    f"SELECT codigo_externo FROM {tabla} WHERE codigo_externo = ?",
+                    f"SELECT codigo_externo, hash_raw_json FROM {tabla} WHERE codigo_externo = ?",
                     (codigo,)
                 ).fetchone()
                 
@@ -126,45 +182,71 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
                     "moneda": lic.get("Moneda", "CLP"),
                     "estado": lic.get("Estado", "publicada").lower() if isinstance(lic.get("Estado"), str) else "publicada",
                     "url_mp_canonica": url_canonica,
-                    "raw_json": json.dumps(lic, ensure_ascii=False),
+                    "raw_json": raw_str_nuevo,
+                    "hash_raw_json": hash_nuevo,
+                    "fuente": fuente,
                 }
                 
-                # Campos extra para adjudicadas
                 if tabla == "mp_licitaciones_adj":
                     datos["fecha_adjudicacion"] = _parse_fecha(adjudicacion.get("Fecha")) or _parse_fecha(lic.get("FechaAdjudicacion"))
                     datos["monto_adjudicado"] = lic.get("MontoAdjudicado") or 0
                     datos["n_oferentes"] = adjudicacion.get("NumeroOferentes") or 0
-                    datos["proveedor_adjudicado"] = ""  # Se extrae de Items si necesario
+                    datos["proveedor_adjudicado"] = ""
                     datos["proveedor_rut"] = ""
                     datos["pondera_precio_pct"] = 0
                 
                 if existe:
-                    # Sólo actualizamos campos que pueden cambiar
+                    hash_anterior = existe["hash_raw_json"] if existe["hash_raw_json"] else ""
+                    
+                    # Si hash igual → skip silencioso (idempotencia)
+                    if hash_anterior == hash_nuevo and hash_anterior:
+                        sin_cambios += 1
+                        continue
+                    
+                    # Hash distinto → detectar diferencias específicas
+                    if hash_anterior:  # Solo si tenemos hash previo (no nulo)
+                        # Cargar valores antiguos de los campos monitoreados
+                        cols_str = ", ".join(campos_monitoreados)
+                        row_ant = conn.execute(
+                            f"SELECT {cols_str} FROM {tabla} WHERE codigo_externo = ?",
+                            (codigo,)
+                        ).fetchone()
+                        antiguo = dict(row_ant) if row_ant else {}
+                        cambios = _detectar_cambios(antiguo, datos, campos_monitoreados)
+                        for campo, va, vn in cambios:
+                            _registrar_cambio_historial(conn, codigo, campo, va, vn, hash_anterior, hash_nuevo, fuente)
+                            cambios_detectados += 1
+                    
+                    # UPDATE
                     if tabla == "mp_licitaciones_adj":
                         conn.execute(f"""
                             UPDATE {tabla}
                             SET nombre=?, descripcion=?, monto_adjudicado=?, 
                                 fecha_adjudicacion=?, n_oferentes=?,
-                                url_mp_canonica=COALESCE(?, url_mp_canonica), raw_json=?
+                                url_mp_canonica=COALESCE(?, url_mp_canonica), 
+                                raw_json=?, hash_raw_json=?, fuente=?
                             WHERE codigo_externo=?
                         """, (
                             datos["nombre"], datos["descripcion"], datos["monto_adjudicado"],
                             datos["fecha_adjudicacion"], datos["n_oferentes"],
-                            datos["url_mp_canonica"], datos["raw_json"], codigo
+                            datos["url_mp_canonica"], datos["raw_json"], 
+                            datos["hash_raw_json"], datos["fuente"], codigo
                         ))
                     else:
                         conn.execute(f"""
                             UPDATE {tabla}
                             SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?,
-                                url_mp_canonica=COALESCE(?, url_mp_canonica), raw_json=?
+                                url_mp_canonica=COALESCE(?, url_mp_canonica), 
+                                raw_json=?, hash_raw_json=?, fuente=?
                             WHERE codigo_externo=?
                         """, (
                             datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
                             datos["monto_referencial"], datos["url_mp_canonica"],
-                            datos["raw_json"], codigo
+                            datos["raw_json"], datos["hash_raw_json"], datos["fuente"], codigo
                         ))
                     actualizadas += 1
                 else:
+                    # INSERT nuevo
                     if tabla == "mp_licitaciones_adj":
                         conn.execute(f"""
                             INSERT INTO {tabla} (
@@ -172,8 +254,8 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
                                 region, comuna, tipo, fecha_publicacion, fecha_cierre, fecha_adjudicacion,
                                 monto_referencial, monto_adjudicado, moneda, n_oferentes,
                                 proveedor_adjudicado, proveedor_rut, estado, pondera_precio_pct,
-                                url_mp_canonica, raw_json
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                url_mp_canonica, raw_json, hash_raw_json, fuente
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             datos["codigo_externo"], datos["nombre"], datos["descripcion"],
                             datos["organismo"], datos["organismo_codigo"],
@@ -181,24 +263,33 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
                             datos["fecha_publicacion"], datos["fecha_cierre"], datos["fecha_adjudicacion"],
                             datos["monto_referencial"], datos["monto_adjudicado"], datos["moneda"], datos["n_oferentes"],
                             datos["proveedor_adjudicado"], datos["proveedor_rut"], "Adjudicada", datos["pondera_precio_pct"],
-                            datos["url_mp_canonica"], datos["raw_json"]
+                            datos["url_mp_canonica"], datos["raw_json"], 
+                            datos["hash_raw_json"], datos["fuente"]
                         ))
                     else:
                         conn.execute(f"""
                             INSERT INTO {tabla} (
                                 codigo_externo, nombre, descripcion, organismo, organismo_codigo,
                                 region, comuna, tipo, fecha_publicacion, fecha_cierre,
-                                monto_referencial, moneda, estado, url_mp_canonica, raw_json
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                monto_referencial, moneda, estado, url_mp_canonica, raw_json,
+                                hash_raw_json, fuente
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             datos["codigo_externo"], datos["nombre"], datos["descripcion"],
                             datos["organismo"], datos["organismo_codigo"],
                             datos["region"], datos["comuna"], datos["tipo"],
                             datos["fecha_publicacion"], datos["fecha_cierre"],
                             datos["monto_referencial"], datos["moneda"], datos["estado"],
-                            datos["url_mp_canonica"], datos["raw_json"]
+                            datos["url_mp_canonica"], datos["raw_json"],
+                            datos["hash_raw_json"], datos["fuente"]
                         ))
                     nuevas += 1
+                
+                # Enriquecer la licitación recién persistida (idempotente)
+                try:
+                    enriquecer_codigo(codigo, conn=conn, fuente_cambio=fuente)
+                except Exception as e:
+                    logger.warning(f"Error enriqueciendo {codigo}: {e}")
             except Exception as e:
                 logger.error(f"Error persistiendo {codigo}: {e}")
                 fallidas += 1
@@ -208,7 +299,13 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
     finally:
         conn.close()
     
-    return {"nuevas": nuevas, "actualizadas": actualizadas, "fallidas": fallidas}
+    return {
+        "nuevas": nuevas, 
+        "actualizadas": actualizadas, 
+        "sin_cambios": sin_cambios,
+        "fallidas": fallidas,
+        "cambios_detectados": cambios_detectados,
+    }
 
 
 def descargar_rango(
@@ -272,13 +369,13 @@ def descargar_rango(
             if incluir_vigentes:
                 vigentes = client.listar_vigentes_por_fecha(fecha)
                 if vigentes:
-                    res_v = _persistir_licitaciones(vigentes, "mp_licitaciones_vigentes")
+                    res_v = _persistir_licitaciones(vigentes, "mp_licitaciones_vigentes", fuente="api_historica")
                     n_vig = res_v.get("nuevas", 0) + res_v.get("actualizadas", 0)
             
             if incluir_adjudicadas:
                 adjudicadas = client.listar_adjudicadas_por_fecha(fecha)
                 if adjudicadas:
-                    res_a = _persistir_licitaciones(adjudicadas, "mp_licitaciones_adj")
+                    res_a = _persistir_licitaciones(adjudicadas, "mp_licitaciones_adj", fuente="api_historica")
                     n_adj = res_a.get("nuevas", 0) + res_a.get("actualizadas", 0)
             
             _registrar_dia_descargado(fecha, n_vig, n_adj)
