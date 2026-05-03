@@ -21,7 +21,7 @@ from typing import Optional, List, Dict, Any
 from collections import deque
 
 from config.settings import (
-    MP_API_BASE, MP_TICKET_DEMO,
+    MP_API_BASE, MP_API_AGIL_BASE, MP_TICKET_DEMO,
     MP_REQUESTS_PER_MINUTE, MP_REQUEST_TIMEOUT,
     MP_MAX_RETRIES, MP_RETRY_BACKOFF, RAW_DIR,
     get_mp_ticket
@@ -233,4 +233,114 @@ class MercadoPublicoClient:
             licitaciones = self.listar_vigentes_por_fecha(fecha)
             todas.extend(licitaciones)
         logger.info(f"📊 Total vigentes últimos {dias_atras} días: {len(todas)}")
+        return todas
+
+    # ============================================================
+    # SPRINT 11.2: COMPRAS ÁGILES
+    # API distinta: /APISOCDS/AGIL/listar
+    # Las Compras Ágiles son <100 UTM, plazos cortos, sin garantías
+    # ============================================================
+
+    def _request_agil(self, endpoint: str, params: Dict[str, Any]) -> Optional[Dict]:
+        """
+        Request al endpoint de Compras Ágiles. Usa misma lógica de
+        rate limiting + retries que el cliente principal.
+        """
+        self._wait_for_rate_limit()
+        params["ticket"] = self.ticket
+        url = f"{MP_API_AGIL_BASE}/{endpoint}"
+
+        for intento in range(MP_MAX_RETRIES):
+            try:
+                resp = self.session.get(url, params=params, timeout=MP_REQUEST_TIMEOUT)
+                if resp.status_code == 200:
+                    try:
+                        return resp.json()
+                    except json.JSONDecodeError:
+                        logger.error(f"AGIL respuesta no es JSON: {resp.text[:200]}")
+                        return None
+                elif resp.status_code in (429, 503):
+                    backoff = MP_RETRY_BACKOFF * (2 ** intento)
+                    logger.warning(f"⚠️  AGIL HTTP {resp.status_code}, backoff {backoff}s")
+                    time.sleep(backoff)
+                    continue
+                elif resp.status_code == 401:
+                    logger.error("❌ AGIL HTTP 401: ticket inválido")
+                    return None
+                else:
+                    logger.warning(f"AGIL HTTP {resp.status_code} para {params}")
+                    return None
+            except requests.Timeout:
+                time.sleep(MP_RETRY_BACKOFF)
+            except requests.RequestException as e:
+                logger.error(f"AGIL error red: {e}")
+                time.sleep(MP_RETRY_BACKOFF)
+        return None
+
+    def listar_agiles_por_fecha(self, fecha: date) -> List[Dict]:
+        """
+        Lista Compras Ágiles publicadas/cerradas en una fecha.
+        
+        Las Compras Ágiles tienen estructura distinta. Las normalizamos al
+        formato común para que el persistidor las acepte sin cambios.
+        Tipo se asigna como 'AGIL' para diferenciar de LE/LP/LR/LQ/CO.
+        """
+        fecha_str = fecha.strftime("%d-%m-%Y")
+        params = {"fecha": fecha_str}
+        
+        data = self._request_agil("listar", params)
+        if not data:
+            return []
+        
+        # API AGIL retorna lista directa o dict con "data"
+        listado = data if isinstance(data, list) else data.get("data", []) or data.get("Listado", [])
+        
+        # Normalizar al formato común para que _persistir_licitaciones funcione
+        normalizadas = []
+        for item in listado:
+            if not isinstance(item, dict):
+                continue
+            
+            normalizada = {
+                "CodigoExterno": item.get("CodigoExterno") or item.get("codigo") or item.get("id"),
+                "Nombre": item.get("Nombre") or item.get("nombre", ""),
+                "Descripcion": item.get("Descripcion") or item.get("descripcion", ""),
+                "Tipo": "AGIL",  # marcador clave para diferenciar
+                "Estado": item.get("Estado") or item.get("estado", "publicada"),
+                "MontoEstimado": item.get("MontoEstimado") or item.get("monto") or 0,
+                "MontoAdjudicado": item.get("MontoAdjudicado") or item.get("monto_adjudicado") or 0,
+                "FechaPublicacion": item.get("FechaPublicacion") or item.get("fecha_publicacion"),
+                "FechaCierre": item.get("FechaCierre") or item.get("fecha_cierre"),
+                "FechaAdjudicacion": item.get("FechaAdjudicacion") or item.get("fecha_adjudicacion"),
+                "Comprador": {
+                    "NombreOrganismo": item.get("NombreOrganismo") or item.get("organismo", ""),
+                    "RegionUnidad": item.get("Region") or item.get("region", ""),
+                    "ComunaUnidad": item.get("Comuna") or item.get("comuna", ""),
+                    "CodigoOrganismo": item.get("CodigoOrganismo", ""),
+                },
+                "UrlAcceso": item.get("UrlAcceso") or item.get("url"),
+                "_origen_agil": True,  # marca para debug/audit
+            }
+            
+            if normalizada["CodigoExterno"]:  # solo agregar si tiene código
+                normalizadas.append(normalizada)
+        
+        logger.info(f"🚀 AGIL {fecha} · {len(normalizadas)} compras ágiles")
+        
+        # Cache crudo
+        if self.save_raw and normalizadas:
+            cache_file = RAW_DIR / f"{fecha:%Y%m%d}_agiles.json"
+            cache_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        
+        return normalizadas
+
+    def listar_agiles_recientes(self, dias_atras: int = 7) -> List[Dict]:
+        """Compras Ágiles de los últimos N días."""
+        hoy = date.today()
+        todas = []
+        for i in range(dias_atras):
+            fecha = hoy - timedelta(days=i)
+            agiles = self.listar_agiles_por_fecha(fecha)
+            todas.extend(agiles)
+        logger.info(f"🚀 Total Compras Ágiles últimos {dias_atras} días: {len(todas)}")
         return todas

@@ -136,6 +136,7 @@ def get_anthropic_api_key() -> str:
 
 
 MP_API_BASE = "https://api.mercadopublico.cl/servicios/v1/publico"
+MP_API_AGIL_BASE = "https://api.mercadopublico.cl/APISOCDS/AGIL"
 MP_TICKET = os.getenv("MP_TICKET", "")  # legacy; preferir get_mp_ticket()
 MP_TICKET_DEMO = "F8537A18-6766-4DEF-9E59-426B4FEE2844"  # Fallback público
 

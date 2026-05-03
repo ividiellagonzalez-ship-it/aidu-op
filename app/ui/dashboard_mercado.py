@@ -259,16 +259,23 @@ def render_dashboard_mercado():
         ticket_prom = int(monto_adj / n_adj_filtrado) if n_adj_filtrado > 0 else 0
         
         # KPI Perímetro AIDU
+        # IMPORTANTE: usar DISTINCT codigo_externo para no contar múltiples veces
+        # las licitaciones que están categorizadas en varias categorías AIDU.
         try:
             cl_pa, pa_pa = _build_clauses_for("l")
             where_pa = " WHERE " + " AND ".join(cl_pa) if cl_pa else ""
+            
+            # Monto en categorías AIDU: cada licitación cuenta UNA sola vez aunque tenga N categorías
             row_a = conn.execute(f"""
                 SELECT COALESCE(SUM(monto_adjudicado), 0) AS m
                 FROM mp_licitaciones_adj l
-                INNER JOIN mp_categorizacion_aidu c ON c.codigo_externo = l.codigo_externo
-                {where_pa}
+                WHERE l.codigo_externo IN (
+                    SELECT DISTINCT c.codigo_externo FROM mp_categorizacion_aidu c
+                )
+                {' AND ' + ' AND '.join(cl_pa) if cl_pa else ''}
             """, pa_pa).fetchone()
             monto_aidu = int(row_a["m"] or 0)
+            
             row_t = conn.execute(f"""
                 SELECT COALESCE(SUM(monto_adjudicado), 0) AS m FROM mp_licitaciones_adj l {where_pa}
             """, pa_pa).fetchone()
@@ -369,15 +376,18 @@ def render_dashboard_mercado():
                 st.markdown("**Fórmula**: `(SUM($) en categorías AIDU / SUM($) total mercado) × 100`")
                 st.markdown("---")
                 d_col1, d_col2 = st.columns(2)
-                d_col1.metric("$ en categorías AIDU", _formato_clp(monto_aidu))
+                d_col1.metric("$ en categorías AIDU (único)", _formato_clp(monto_aidu),
+                              help="Cada licitación cuenta UNA sola vez aunque esté en varias categorías AIDU")
                 d_col2.metric("$ total mercado (filtro)", _formato_clp(monto_total))
                 
-                # Desglose por categoría
+                # Desglose por categoría (aquí SÍ se cuenta varias veces si una licitación tiene varias categorías)
                 try:
                     cl_pa, pa_pa = _build_clauses_for("l")
                     where_pa = " WHERE " + " AND ".join(cl_pa) if cl_pa else ""
                     rows_cat = conn.execute(f"""
-                        SELECT c.cod_servicio_aidu, COUNT(*) AS n, SUM(l.monto_adjudicado) AS monto
+                        SELECT c.cod_servicio_aidu, 
+                               COUNT(DISTINCT l.codigo_externo) AS n_lic,
+                               SUM(l.monto_adjudicado) AS monto
                         FROM mp_licitaciones_adj l
                         INNER JOIN mp_categorizacion_aidu c ON c.codigo_externo = l.codigo_externo
                         {where_pa}
@@ -385,11 +395,12 @@ def render_dashboard_mercado():
                     """, pa_pa).fetchall()
                     if rows_cat:
                         st.markdown("**Desglose por categoría AIDU**:")
+                        st.caption("ℹ️ Una licitación puede aparecer en varias categorías. Por eso la suma de esta tabla puede ser mayor al $ único de arriba.")
                         tabla = []
                         for r in rows_cat:
                             tabla.append({
                                 "Categoría": r["cod_servicio_aidu"],
-                                "N°": int(r["n"]),
+                                "Licitaciones únicas": int(r["n_lic"]),
                                 "Monto": _formato_clp(int(r["monto"] or 0)),
                             })
                         st.dataframe(tabla, use_container_width=True, hide_index=True)
@@ -723,6 +734,141 @@ def render_dashboard_mercado():
         else:
             st.info("Selecciona al menos un estado para ver la tabla.")
         
+        # ============ INTELIGENCIA DE PRECIOS (S11.3) ============
+        st.divider()
+        st.markdown("##### 💎 Inteligencia de precios · Tarifas de mercado vs tu costo")
+        st.caption("CLP/HH del mercado por categoría y tipo de licitación. Comparado contra tu costo HH AIDU. Tu calculadora de tarifa competitiva.")
+        
+        try:
+            from app.core.inteligencia_precios_v2 import (
+                tarifas_por_categoria, tarifas_por_categoria_y_tipo,
+                clp_m2_por_categoria, benchmark_tipo_licitacion,
+                stats_globales_inteligencia, COSTO_HH_AIDU
+            )
+            
+            stats_ip = stats_globales_inteligencia()
+            n_cats = stats_ip.get("n_categorias_con_data", 0)
+            n_tipos = stats_ip.get("n_tipos_con_data", 0)
+            
+            if n_cats == 0:
+                st.info(
+                    "📭 Sin datos suficientes para inteligencia de precios. Necesitas:\n"
+                    "1. Licitaciones adjudicadas con monto > 0\n"
+                    "2. Categorización AIDU (CE-XX/GP-XX) en mp_categorizacion_aidu\n"
+                    "3. HH (tabla maestra o extraídas)\n\n"
+                    "💡 Acción: scroll abajo y ejecuta '⚡ Extraer indicadores (lote)' "
+                    "para asignar HH desde la tabla maestra."
+                )
+            else:
+                # KPI cards top
+                ip_c1, ip_c2, ip_c3, ip_c4 = st.columns(4)
+                ip_c1.metric("Categorías con tarifa", f"{n_cats}",
+                             help="Categorías AIDU que tienen al menos 1 licitación con HH calculadas")
+                ip_c2.metric("Tipos analizados", f"{n_tipos}",
+                             help="LE/LP/LR/LQ/AGIL/etc presentes en BD")
+                
+                mejor = stats_ip.get("mejor_categoria")
+                peor = stats_ip.get("peor_categoria")
+                if mejor:
+                    ip_c3.metric(
+                        f"💰 Mejor margen: {mejor['categoria']}",
+                        f"${mejor['clp_hh_mediana']:,}/HH",
+                        delta=f"{mejor['margen_vs_aidu_pct']:+.1f}% vs tu costo",
+                    )
+                if peor and peor != mejor:
+                    ip_c4.metric(
+                        f"⚠️ Menor margen: {peor['categoria']}",
+                        f"${peor['clp_hh_mediana']:,}/HH",
+                        delta=f"{peor['margen_vs_aidu_pct']:+.1f}% vs tu costo",
+                    )
+                
+                # Tabla principal: tarifas por categoría
+                st.markdown("**📊 Tarifas por categoría AIDU** (tu costo HH = $92,040)")
+                cats_data = tarifas_por_categoria()
+                if cats_data:
+                    tabla_ip = []
+                    for r in cats_data:
+                        margen = r["margen_vs_aidu_pct"]
+                        if margen >= 30:
+                            color = "🟢"
+                        elif margen >= 10:
+                            color = "🟡"
+                        elif margen >= 0:
+                            color = "🟠"
+                        else:
+                            color = "🔴"
+                        tabla_ip.append({
+                            "Categoría": r["categoria"],
+                            "N° lic.": r["n_licitaciones"],
+                            "CLP/HH min": f"${r['clp_hh_min']:,}",
+                            "CLP/HH mediana": f"${r['clp_hh_mediana']:,}",
+                            "CLP/HH max": f"${r['clp_hh_max']:,}",
+                            "Margen vs AIDU": f"{color} {margen:+.1f}%",
+                        })
+                    st.dataframe(tabla_ip, use_container_width=True, hide_index=True)
+                
+                # Benchmark por tipo licitación
+                with st.expander("🔍 Benchmark por tipo de licitación (LE/LP/LR/LQ/AGIL)", expanded=False):
+                    st.caption("¿Qué tipo de licitación paga mejor por hora?")
+                    tipos_data = benchmark_tipo_licitacion()
+                    if tipos_data:
+                        tabla_tipos = []
+                        for r in tipos_data:
+                            tabla_tipos.append({
+                                "Tipo": r["tipo"],
+                                "N° lic.": r["n"],
+                                "CLP/HH mediana": f"${r['clp_hh_mediana']:,}",
+                                "CLP/HH promedio": f"${r['clp_hh_promedio']:,}",
+                                "Margen vs AIDU": f"{r['margen_vs_aidu_pct']:+.1f}%",
+                            })
+                        st.dataframe(tabla_tipos, use_container_width=True, hide_index=True)
+                        
+                        # Insight automático
+                        if len(tipos_data) >= 2:
+                            mejor_tipo = tipos_data[0]
+                            peor_tipo = tipos_data[-1]
+                            diff = mejor_tipo["clp_hh_mediana"] - peor_tipo["clp_hh_mediana"]
+                            st.info(
+                                f"💡 **Insight**: {mejor_tipo['tipo']} paga ${diff:,}/HH más que {peor_tipo['tipo']} "
+                                f"(diferencia mediana). Prioriza {mejor_tipo['tipo']} si tienes flexibilidad."
+                            )
+                    else:
+                        st.caption("Sin datos de tipos.")
+                
+                # Detalle categoría × tipo
+                with st.expander("🔬 Detalle categoría × tipo (matriz fina)", expanded=False):
+                    st.caption("Ejemplo: 'CE-01 en LP' vs 'CE-01 en AGIL'")
+                    detalle_data = tarifas_por_categoria_y_tipo()
+                    if detalle_data:
+                        tabla_det = []
+                        for r in detalle_data:
+                            tabla_det.append({
+                                "Categoría": r["categoria"],
+                                "Tipo": r["tipo"],
+                                "N°": r["n_licitaciones"],
+                                "CLP/HH mediana": f"${r['clp_hh_mediana']:,}",
+                                "Margen": f"{r['margen_vs_aidu_pct']:+.1f}%",
+                            })
+                        st.dataframe(tabla_det, use_container_width=True, hide_index=True)
+                
+                # CLP/m² para categorías que aplican
+                m2_data = clp_m2_por_categoria()
+                if m2_data:
+                    with st.expander("🏗️ CLP/m² (categorías con superficie)", expanded=False):
+                        st.caption("Para CE-01/02/03 cuando se extrajo m² del texto.")
+                        tabla_m2 = []
+                        for r in m2_data:
+                            tabla_m2.append({
+                                "Categoría": r["categoria"],
+                                "N° muestras": r["n_muestras"],
+                                "CLP/m² min": f"${r['clp_m2_min']:,}",
+                                "CLP/m² mediana": f"${r['clp_m2_mediana']:,}",
+                                "CLP/m² max": f"${r['clp_m2_max']:,}",
+                            })
+                        st.dataframe(tabla_m2, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.warning(f"⚠️ Inteligencia de precios no disponible: {e}")
+        
         # ============ TABLA MAESTRA HOMOLOGACIÓN (editable) ============
         st.divider()
         st.markdown("##### 🛠️ Tabla maestra de homologación · Tu conocimiento técnico")
@@ -866,10 +1012,12 @@ def render_dashboard_mercado():
                 with col_d2:
                     fecha_hasta_dl = st.date_input("Hasta", value=hoy, key="dl_hasta")
                 
-                col_chk = st.columns(3)
+                col_chk = st.columns(4)
                 inc_vig = col_chk[0].checkbox("Vigentes", value=True, key="dl_inc_vig")
                 inc_adj = col_chk[1].checkbox("Adjudicadas", value=True, key="dl_inc_adj")
-                saltar = col_chk[2].checkbox("Saltar días descargados", value=True, key="dl_skip")
+                inc_agiles = col_chk[2].checkbox("🚀 Compras Ágiles", value=True, key="dl_inc_agil",
+                                                  help="<100 UTM, plazos cortos. Vector de entrada AIDU.")
+                saltar = col_chk[3].checkbox("Saltar días descargados", value=True, key="dl_skip")
                 
                 if st.button("🚀 Iniciar descarga histórica", type="primary", use_container_width=True, key="dl_btn"):
                     progress_bar = st.progress(0)
@@ -877,19 +1025,21 @@ def render_dashboard_mercado():
                     
                     def cb(actual, total, fecha, n_vig, n_adj_dia, st_str):
                         progress_bar.progress(actual / total if total else 0)
-                        status.text(f"📅 {fecha} · {actual}/{total} · +{n_vig} vig / +{n_adj_dia} adj")
+                        status.text(f"📅 {fecha} · {actual}/{total} · +{n_vig} vig / +{n_adj_dia} adj · {st_str}")
                     
                     try:
                         res = descargar_rango(
                             fecha_inicio=fecha_desde_dl, fecha_fin=fecha_hasta_dl,
                             incluir_vigentes=inc_vig, incluir_adjudicadas=inc_adj,
+                            incluir_agiles=inc_agiles,
                             saltar_descargados=saltar, progress_callback=cb,
                         )
                         progress_bar.progress(1.0)
                         st.success(f"""🎉 Descarga completa
 - Días: {res.get('dias_procesados', 0)} (saltados: {res.get('dias_saltados', 0)})
-- Vigentes: +{res.get('vigentes_total', 0)}
-- Adjudicadas: +{res.get('adjudicadas_total', 0)}
+- Vigentes: +{res.get('total_vigentes', 0)}
+- Adjudicadas: +{res.get('total_adjudicadas', 0)}
+- 🚀 Compras Ágiles: +{res.get('total_agiles', 0)}
 
 🔄 Recarga la página (R) para ver los nuevos datos.""")
                     except Exception as e:

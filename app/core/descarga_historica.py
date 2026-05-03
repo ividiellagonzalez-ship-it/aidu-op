@@ -344,6 +344,7 @@ def descargar_rango(
     fecha_fin: date,
     incluir_adjudicadas: bool = True,
     incluir_vigentes: bool = True,
+    incluir_agiles: bool = True,
     saltar_descargados: bool = True,
     progress_callback: Optional[Callable] = None,
 ) -> Dict:
@@ -355,6 +356,7 @@ def descargar_rango(
         fecha_fin: último día (inclusive)
         incluir_adjudicadas: descargar licitaciones adjudicadas
         incluir_vigentes: descargar licitaciones vigentes/publicadas
+        incluir_agiles: descargar Compras Ágiles (Tipo='AGIL', <100 UTM)
         saltar_descargados: no re-descargar días ya procesados
         progress_callback: función(dia_actual, total, fecha, n_vigentes, n_adj, status)
     
@@ -382,6 +384,7 @@ def descargar_rango(
         "dias_con_error": 0,
         "total_vigentes": 0,
         "total_adjudicadas": 0,
+        "total_agiles": 0,
     }
     
     for i, fecha in enumerate(fechas, start=1):
@@ -396,6 +399,7 @@ def descargar_rango(
         try:
             n_vig = 0
             n_adj = 0
+            n_agil = 0
             
             if incluir_vigentes:
                 vigentes = client.listar_vigentes_por_fecha(fecha)
@@ -409,14 +413,34 @@ def descargar_rango(
                     res_a = _persistir_licitaciones(adjudicadas, "mp_licitaciones_adj", fuente="api_historica")
                     n_adj = res_a.get("nuevas", 0) + res_a.get("actualizadas", 0)
             
+            # Sprint 11.2: Compras Ágiles
+            if incluir_agiles:
+                try:
+                    agiles = client.listar_agiles_por_fecha(fecha)
+                    if agiles:
+                        # Las Compras Ágiles vigentes van a la tabla vigentes con tipo='AGIL'
+                        # Las cerradas/adjudicadas van a tabla adj
+                        agiles_vigentes = [a for a in agiles if str(a.get("Estado", "")).lower() in ("publicada", "vigente", "activa")]
+                        agiles_cerradas = [a for a in agiles if a not in agiles_vigentes]
+                        
+                        if agiles_vigentes:
+                            res_av = _persistir_licitaciones(agiles_vigentes, "mp_licitaciones_vigentes", fuente="api_agil")
+                            n_agil += res_av.get("nuevas", 0) + res_av.get("actualizadas", 0)
+                        if agiles_cerradas:
+                            res_ac = _persistir_licitaciones(agiles_cerradas, "mp_licitaciones_adj", fuente="api_agil")
+                            n_agil += res_ac.get("nuevas", 0) + res_ac.get("actualizadas", 0)
+                except Exception as e_agil:
+                    logger.warning(f"Error AGIL {fecha}: {e_agil}")
+            
             _registrar_dia_descargado(fecha, n_vig, n_adj)
             
             stats["dias_procesados"] += 1
             stats["total_vigentes"] += n_vig
             stats["total_adjudicadas"] += n_adj
+            stats["total_agiles"] += n_agil
             
             if progress_callback:
-                progress_callback(i, total, fecha, n_vig, n_adj, "ok")
+                progress_callback(i, total, fecha, n_vig, n_adj, f"ok · {n_agil} AGIL" if n_agil else "ok")
         
         except Exception as e:
             logger.error(f"Error descargando {fecha}: {e}")
