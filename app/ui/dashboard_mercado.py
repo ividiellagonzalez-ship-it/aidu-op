@@ -287,6 +287,214 @@ def render_dashboard_mercado():
         col_k4.metric("💵 Ticket promedio", _formato_clp(ticket_prom),
                       delta=f"{n_adj_filtrado:,} muestras")
         
+        # === KPIs clickeables: botones detalle ===
+        col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+        ver_kpi_1 = col_btn1.button("🔍 Detalle", key="kpi_detail_1", use_container_width=True)
+        ver_kpi_2 = col_btn2.button("🔍 Detalle", key="kpi_detail_2", use_container_width=True)
+        ver_kpi_3 = col_btn3.button("🔍 Detalle", key="kpi_detail_3", use_container_width=True)
+        ver_kpi_4 = col_btn4.button("🔍 Detalle", key="kpi_detail_4", use_container_width=True)
+        
+        # Popup KPI 1: Mercado adjudicado
+        if ver_kpi_1:
+            with st.expander("💰 Detalle · Mercado adjudicado", expanded=True):
+                st.markdown("**Definición**: Suma de `monto_adjudicado` de todas las licitaciones que cumplen los filtros activos. Refleja el volumen real de negocio cerrado en el período y nicho elegido.")
+                st.markdown(f"**Fórmula**: `SUM(monto_adjudicado) FROM mp_licitaciones_adj WHERE filtros`")
+                st.markdown("---")
+                
+                if usar_adj and n_adj_filtrado > 0:
+                    cl, pa = _build_clauses_for("l")
+                    if cat_clause: cl.append(cat_clause); pa = pa + cat_params
+                    w = " WHERE " + " AND ".join(cl) if cl else ""
+                    
+                    # Distribución
+                    try:
+                        rows_d = conn.execute(f"""
+                            SELECT 
+                                MIN(monto_adjudicado) AS minimo,
+                                MAX(monto_adjudicado) AS maximo,
+                                AVG(monto_adjudicado) AS promedio,
+                                CAST(SUM(CASE WHEN monto_adjudicado < 5000000 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 AS pct_pequeño,
+                                CAST(SUM(CASE WHEN monto_adjudicado BETWEEN 5000000 AND 30000000 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 AS pct_sweet,
+                                CAST(SUM(CASE WHEN monto_adjudicado > 30000000 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 AS pct_grande
+                            FROM mp_licitaciones_adj l {join_cat} {w}
+                            AND monto_adjudicado > 0
+                        """ if cl else f"""
+                            SELECT 
+                                MIN(monto_adjudicado) AS minimo,
+                                MAX(monto_adjudicado) AS maximo,
+                                AVG(monto_adjudicado) AS promedio,
+                                CAST(SUM(CASE WHEN monto_adjudicado < 5000000 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 AS pct_pequeño,
+                                CAST(SUM(CASE WHEN monto_adjudicado BETWEEN 5000000 AND 30000000 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 AS pct_sweet,
+                                CAST(SUM(CASE WHEN monto_adjudicado > 30000000 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 AS pct_grande
+                            FROM mp_licitaciones_adj l {join_cat} WHERE monto_adjudicado > 0
+                        """, pa).fetchone()
+                        
+                        d_col1, d_col2, d_col3 = st.columns(3)
+                        d_col1.metric("Mínimo", _formato_clp(int(rows_d["minimo"] or 0)))
+                        d_col2.metric("Promedio", _formato_clp(int(rows_d["promedio"] or 0)))
+                        d_col3.metric("Máximo", _formato_clp(int(rows_d["maximo"] or 0)))
+                        
+                        st.markdown(f"""
+                        **Distribución por tamaño** (sweet spot AIDU = $5M-$30M):
+                        - 🔴 Pequeñas (<$5M): {rows_d['pct_pequeño']:.1f}%
+                        - 🟢 Sweet spot ($5M-$30M): {rows_d['pct_sweet']:.1f}%
+                        - 🟡 Grandes (>$30M): {rows_d['pct_grande']:.1f}%
+                        """)
+                    except Exception as e:
+                        st.caption(f"Distribución no disponible: {e}")
+                    
+                    # Top 5
+                    try:
+                        rows_top = conn.execute(f"""
+                            SELECT codigo_externo, nombre, organismo, region, monto_adjudicado, fecha_adjudicacion
+                            FROM mp_licitaciones_adj l {join_cat} {w}
+                            AND monto_adjudicado > 0 ORDER BY monto_adjudicado DESC LIMIT 5
+                        """ if cl else f"""
+                            SELECT codigo_externo, nombre, organismo, region, monto_adjudicado, fecha_adjudicacion
+                            FROM mp_licitaciones_adj l {join_cat} WHERE monto_adjudicado > 0 ORDER BY monto_adjudicado DESC LIMIT 5
+                        """, pa).fetchall()
+                        if rows_top:
+                            st.markdown("**Top 5 adjudicaciones**:")
+                            for i, r in enumerate(rows_top, 1):
+                                st.markdown(f"{i}. **{_formato_clp(int(r['monto_adjudicado']))}** · {(r['nombre'] or '')[:60]} · {(r['organismo'] or '')[:40]}")
+                    except Exception:
+                        pass
+                else:
+                    st.info("Activa 'Solo adjudicadas' o 'Todas' en el filtro Estado.")
+        
+        # Popup KPI 2: Perímetro AIDU
+        if ver_kpi_2:
+            with st.expander("🎯 Detalle · Perímetro AIDU", expanded=True):
+                st.markdown("**Definición**: Porcentaje del mercado total que cae dentro de las categorías AIDU (CE-XX y GP-XX). Indica qué tan grande es tu nicho dentro del universo de licitaciones del período.")
+                st.markdown("**Fórmula**: `(SUM($) en categorías AIDU / SUM($) total mercado) × 100`")
+                st.markdown("---")
+                d_col1, d_col2 = st.columns(2)
+                d_col1.metric("$ en categorías AIDU", _formato_clp(monto_aidu))
+                d_col2.metric("$ total mercado (filtro)", _formato_clp(monto_total))
+                
+                # Desglose por categoría
+                try:
+                    cl_pa, pa_pa = _build_clauses_for("l")
+                    where_pa = " WHERE " + " AND ".join(cl_pa) if cl_pa else ""
+                    rows_cat = conn.execute(f"""
+                        SELECT c.cod_servicio_aidu, COUNT(*) AS n, SUM(l.monto_adjudicado) AS monto
+                        FROM mp_licitaciones_adj l
+                        INNER JOIN mp_categorizacion_aidu c ON c.codigo_externo = l.codigo_externo
+                        {where_pa}
+                        GROUP BY c.cod_servicio_aidu ORDER BY monto DESC
+                    """, pa_pa).fetchall()
+                    if rows_cat:
+                        st.markdown("**Desglose por categoría AIDU**:")
+                        tabla = []
+                        for r in rows_cat:
+                            tabla.append({
+                                "Categoría": r["cod_servicio_aidu"],
+                                "N°": int(r["n"]),
+                                "Monto": _formato_clp(int(r["monto"] or 0)),
+                            })
+                        st.dataframe(tabla, use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.caption(f"Desglose no disponible: {e}")
+        
+        # Popup KPI 3: Vigentes ahora
+        if ver_kpi_3:
+            with st.expander("🟢 Detalle · Vigentes ahora", expanded=True):
+                st.markdown("**Definición**: Licitaciones publicadas en estado 'Publicada' que aún están abiertas para postular. **Independiente del filtro de período** porque las vigentes son siempre 'ahora'.")
+                st.markdown("**Fórmula**: `COUNT(*) FROM mp_licitaciones_vigentes WHERE filtros (sin período)`")
+                st.markdown("---")
+                
+                if n_vigentes > 0:
+                    try:
+                        from datetime import datetime as _dt
+                        hoy_iso = _dt.now().date().isoformat()
+                        cl_v = []
+                        pa_v = []
+                        if regs_seleccionadas:
+                            ph = ",".join(["?"] * len(regs_seleccionadas))
+                            cl_v.append(f"l.region IN ({ph})"); pa_v.extend(regs_seleccionadas)
+                        if tipos_seleccionados:
+                            ph = ",".join(["?"] * len(tipos_seleccionados))
+                            cl_v.append(f"l.tipo IN ({ph})"); pa_v.extend(tipos_seleccionados)
+                        if orgs_seleccionados:
+                            ph = ",".join(["?"] * len(orgs_seleccionados))
+                            cl_v.append(f"l.organismo IN ({ph})"); pa_v.extend(orgs_seleccionados)
+                        join_v = "INNER JOIN mp_categorizacion_aidu c ON c.codigo_externo = l.codigo_externo" if cats_seleccionadas else ""
+                        if cats_seleccionadas:
+                            cl_v.append(cat_clause); pa_v = pa_v + cat_params
+                        w_v = " WHERE " + " AND ".join(cl_v) if cl_v else ""
+                        
+                        # Cierres próximos
+                        rows_cierre = conn.execute(f"""
+                            SELECT 
+                                SUM(CASE WHEN date(fecha_cierre) <= date(?, '+7 days') THEN 1 ELSE 0 END) AS prox_7d,
+                                SUM(CASE WHEN date(fecha_cierre) > date(?, '+7 days') AND date(fecha_cierre) <= date(?, '+30 days') THEN 1 ELSE 0 END) AS prox_30d,
+                                SUM(CASE WHEN date(fecha_cierre) > date(?, '+30 days') THEN 1 ELSE 0 END) AS lejanas
+                            FROM mp_licitaciones_vigentes l {join_v} {w_v}
+                            {'AND' if w_v else 'WHERE'} fecha_cierre IS NOT NULL
+                        """, [hoy_iso, hoy_iso, hoy_iso, hoy_iso] + pa_v).fetchone()
+                        
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("🔥 Cierran ≤7 días", int(rows_cierre["prox_7d"] or 0))
+                        c2.metric("⏱️ Cierran 7-30 días", int(rows_cierre["prox_30d"] or 0))
+                        c3.metric("📅 Cierran >30 días", int(rows_cierre["lejanas"] or 0))
+                        
+                        # Top 5 con cierre más cercano
+                        rows_urg = conn.execute(f"""
+                            SELECT codigo_externo, nombre, organismo, fecha_cierre, monto_referencial
+                            FROM mp_licitaciones_vigentes l {join_v} {w_v}
+                            {'AND' if w_v else 'WHERE'} fecha_cierre IS NOT NULL AND date(fecha_cierre) >= date(?)
+                            ORDER BY fecha_cierre ASC LIMIT 5
+                        """, pa_v + [hoy_iso]).fetchall()
+                        if rows_urg:
+                            st.markdown("**Top 5 con cierre más urgente**:")
+                            for r in rows_urg:
+                                st.markdown(f"- **{r['fecha_cierre'][:10]}** · {(r['nombre'] or '')[:60]} · {_formato_clp(int(r['monto_referencial'] or 0))}")
+                    except Exception as e:
+                        st.caption(f"Cierres no disponibles: {e}")
+                else:
+                    st.info("Sin vigentes con los filtros activos.")
+        
+        # Popup KPI 4: Ticket promedio
+        if ver_kpi_4:
+            with st.expander("💵 Detalle · Ticket promedio", expanded=True):
+                st.markdown("**Definición**: Monto promedio adjudicado por licitación en el filtro actual. **Promedio aritmético** (no mediana). Útil para calibrar tarifas y entender el tamaño típico de proyecto.")
+                st.markdown("**Fórmula**: `AVG(monto_adjudicado) WHERE monto > 0`")
+                st.markdown("---")
+                
+                if usar_adj and n_adj_filtrado > 0:
+                    try:
+                        cl, pa = _build_clauses_for("l")
+                        if cat_clause: cl.append(cat_clause); pa = pa + cat_params
+                        w = " WHERE " + " AND ".join(cl) if cl else ""
+                        
+                        # Mediana aproximada con percentiles
+                        rows = conn.execute(f"""
+                            SELECT monto_adjudicado FROM mp_licitaciones_adj l {join_cat} {w}
+                            {'AND' if w else 'WHERE'} monto_adjudicado > 0
+                            ORDER BY monto_adjudicado ASC
+                        """, pa).fetchall()
+                        montos = [int(r["monto_adjudicado"]) for r in rows]
+                        if montos:
+                            n = len(montos)
+                            mediana = montos[n // 2]
+                            p25 = montos[n // 4]
+                            p75 = montos[3 * n // 4]
+                            
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric("P25", _formato_clp(p25), help="25% de licitaciones bajo este monto")
+                            c2.metric("Mediana", _formato_clp(mediana), help="50%: típico real")
+                            c3.metric("Promedio", _formato_clp(ticket_prom), help="Sesgado por outliers")
+                            c4.metric("P75", _formato_clp(p75), help="75% bajo este monto")
+                            
+                            if mediana < ticket_prom * 0.7:
+                                st.warning(f"⚠️ Promedio ({_formato_clp(ticket_prom)}) está sesgado hacia arriba por licitaciones grandes. La **mediana ({_formato_clp(mediana)})** representa mejor el tamaño típico.")
+                            else:
+                                st.success(f"✅ Distribución equilibrada. Promedio y mediana son similares.")
+                    except Exception as e:
+                        st.caption(f"Estadísticos no disponibles: {e}")
+                else:
+                    st.info("Activa 'Solo adjudicadas' para ver estadísticos.")
+        
         if monto_adj == 0 and n_vigentes == 0:
             st.warning(
                 f"⚠️ Sin licitaciones con estos filtros. BD: {n_vig_total:,} vig + {n_adj_total:,} adj. "
@@ -514,6 +722,115 @@ def render_dashboard_mercado():
                 st.warning(f"Tabla error: {e}")
         else:
             st.info("Selecciona al menos un estado para ver la tabla.")
+        
+        # ============ TABLA MAESTRA HOMOLOGACIÓN (editable) ============
+        st.divider()
+        st.markdown("##### 🛠️ Tabla maestra de homologación · Tu conocimiento técnico")
+        st.caption("Edita HH típicas, plazo, entregables por categoría AIDU. Estos valores alimentan la inteligencia de precios y se aplican como fallback cuando no se pueden extraer del texto de la licitación.")
+        
+        try:
+            from app.core.homologacion import (
+                seed_homologacion, listar_homologacion, actualizar_homologacion,
+                stats_extraccion, extraer_lote
+            )
+            
+            # Auto-seed la primera vez
+            try:
+                seed_homologacion(forzar=False)
+            except Exception:
+                pass
+            
+            # Stats extracción
+            try:
+                ext_stats = stats_extraccion()
+            except Exception:
+                ext_stats = {"total_adj": 0, "extraidas": 0, "pct_cobertura": 0,
+                             "pct_plazo": 0, "pct_m2": 0, "pct_hh": 0}
+            
+            ce_col1, ce_col2, ce_col3, ce_col4 = st.columns(4)
+            ce_col1.metric("Cobertura extracción", f"{ext_stats['pct_cobertura']:.1f}%",
+                           delta=f"{ext_stats['extraidas']:,} de {ext_stats['total_adj']:,}")
+            ce_col2.metric("Con plazo extraído", f"{ext_stats['pct_plazo']:.1f}%")
+            ce_col3.metric("Con m² extraído", f"{ext_stats['pct_m2']:.1f}%")
+            ce_col4.metric("Con HH estimadas", f"{ext_stats['pct_hh']:.1f}%")
+            
+            # Botón ejecutar extracción lote
+            ce_btn1, ce_btn2 = st.columns([1, 3])
+            with ce_btn1:
+                if st.button("⚡ Extraer indicadores (lote)", use_container_width=True, key="extr_lote_btn",
+                             help="Aplica heurísticas a hasta 1000 licitaciones pendientes."):
+                    with st.spinner("Extrayendo indicadores de hasta 1000 licitaciones..."):
+                        try:
+                            res = extraer_lote(limit=1000, solo_pendientes=True)
+                            st.success(
+                                f"✅ Procesadas {res['total']} · "
+                                f"con plazo: {res['con_plazo']} · "
+                                f"con m²: {res['con_m2']} · "
+                                f"con entregables: {res['con_entregables']} · "
+                                f"con HH: {res['con_hh']}"
+                            )
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            with ce_btn2:
+                st.caption("💡 La extracción heurística busca patrones de plazo/m²/entregables en el texto de cada licitación. Las HH se asignan desde la tabla maestra según la categoría AIDU.")
+            
+            with st.expander("✏️ Editar tabla maestra", expanded=False):
+                st.caption("Edita los valores directamente. Los cambios se guardan al hacer click en '💾 Guardar cambios'.")
+                
+                items = listar_homologacion()
+                if items:
+                    import pandas as pd
+                    df_hom = pd.DataFrame(items)
+                    df_hom_show = df_hom[[
+                        "cod_servicio_aidu", "nombre_servicio", "linea",
+                        "hh_tipicas", "plazo_dias_tipico", "entregables_tipicos",
+                        "aplica_m2", "m2_referencia", "notas"
+                    ]].copy()
+                    df_hom_show.columns = [
+                        "Código", "Servicio", "Línea",
+                        "HH típicas", "Plazo días", "Entregables típicos",
+                        "Aplica m²", "m² ref.", "Notas"
+                    ]
+                    
+                    edited_df = st.data_editor(
+                        df_hom_show,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=460,
+                        column_config={
+                            "Código": st.column_config.TextColumn(disabled=True, width="small"),
+                            "Línea": st.column_config.TextColumn(disabled=True, width="small"),
+                            "HH típicas": st.column_config.NumberColumn(min_value=1, max_value=10000, step=10),
+                            "Plazo días": st.column_config.NumberColumn(min_value=1, max_value=730, step=5),
+                            "Aplica m²": st.column_config.CheckboxColumn(),
+                            "m² ref.": st.column_config.NumberColumn(min_value=0, max_value=100000, step=50),
+                        },
+                        key="data_editor_homologacion"
+                    )
+                    
+                    if st.button("💾 Guardar cambios en tabla maestra", type="primary", key="save_hom_btn"):
+                        cambios = 0
+                        for idx, row in edited_df.iterrows():
+                            cod = row["Código"]
+                            try:
+                                actualizar_homologacion(
+                                    cod,
+                                    nombre_servicio=row["Servicio"],
+                                    hh_tipicas=int(row["HH típicas"]),
+                                    plazo_dias_tipico=int(row["Plazo días"]),
+                                    entregables_tipicos=row["Entregables típicos"] or "",
+                                    aplica_m2=1 if row["Aplica m²"] else 0,
+                                    m2_referencia=int(row["m² ref."] or 0),
+                                    notas=row["Notas"] or "",
+                                )
+                                cambios += 1
+                            except Exception as e:
+                                st.error(f"Error guardando {cod}: {e}")
+                        st.success(f"✅ {cambios} categorías actualizadas")
+                else:
+                    st.info("Tabla maestra vacía. Recarga la página para auto-seed.")
+        except Exception as e:
+            st.warning(f"⚠️ Tabla maestra no disponible: {e}")
         
         # ============ GESTIÓN BD ============
         st.divider()
