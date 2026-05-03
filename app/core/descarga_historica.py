@@ -119,12 +119,22 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
        - Si hash igual → skip silencioso (no escribimos nada, no contamos)
     
     Tras INSERT/UPDATE → llamar enriquecer_codigo() para repoblar tablas relacionales.
+    
+    DEFENSIVO: detecta si las columnas v18 (hash_raw_json, fuente) existen en la
+    tabla. Si no existen, opera en modo legacy sin romper.
     """
     if not licitaciones_raw:
         return {"nuevas": 0, "actualizadas": 0, "sin_cambios": 0, "fallidas": 0, "cambios_detectados": 0}
     
     # Import lazy para evitar circulares
-    from app.core.enriquecimiento import enriquecer_codigo, _hash_raw
+    try:
+        from app.core.enriquecimiento import enriquecer_codigo, _hash_raw
+    except ImportError:
+        # Si el módulo no existe, modo legacy completo
+        enriquecer_codigo = None
+        import hashlib
+        def _hash_raw(s):
+            return hashlib.sha256((s or "").encode()).hexdigest()[:16] if s else ""
     
     nuevas = 0
     actualizadas = 0
@@ -139,6 +149,16 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
     
     conn = get_connection()
     try:
+        # Detectar columnas disponibles en la tabla destino (defensivo)
+        cols_existentes = {row[1] for row in conn.execute(f"PRAGMA table_info({tabla})").fetchall()}
+        tiene_hash = "hash_raw_json" in cols_existentes
+        tiene_fuente = "fuente" in cols_existentes
+        tiene_url_canonica = "url_mp_canonica" in cols_existentes
+        # Detectar si tabla historial existe
+        tiene_historial = bool(conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mp_historial_cambios'"
+        ).fetchone())
+        
         for lic in licitaciones_raw:
             try:
                 codigo = lic.get("CodigoExterno") or lic.get("codigo_externo")
@@ -146,15 +166,21 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
                     fallidas += 1
                     continue
                 
-                # Calcular hash del raw nuevo
+                # Calcular hash del raw nuevo (siempre, por si tiene_hash sea True)
                 raw_str_nuevo = json.dumps(lic, ensure_ascii=False)
-                hash_nuevo = _hash_raw(raw_str_nuevo)
+                hash_nuevo = _hash_raw(raw_str_nuevo) if tiene_hash else ""
                 
                 # ¿Existe?
-                existe = conn.execute(
-                    f"SELECT codigo_externo, hash_raw_json FROM {tabla} WHERE codigo_externo = ?",
-                    (codigo,)
-                ).fetchone()
+                if tiene_hash:
+                    existe = conn.execute(
+                        f"SELECT codigo_externo, hash_raw_json FROM {tabla} WHERE codigo_externo = ?",
+                        (codigo,)
+                    ).fetchone()
+                else:
+                    existe = conn.execute(
+                        f"SELECT codigo_externo FROM {tabla} WHERE codigo_externo = ?",
+                        (codigo,)
+                    ).fetchone()
                 
                 # URL canónica (cuando la API la provee)
                 url_canonica = (
@@ -196,100 +222,105 @@ def _persistir_licitaciones(licitaciones_raw, tabla: str = "mp_licitaciones_vige
                     datos["pondera_precio_pct"] = 0
                 
                 if existe:
-                    hash_anterior = existe["hash_raw_json"] if existe["hash_raw_json"] else ""
+                    if tiene_hash:
+                        hash_anterior = existe["hash_raw_json"] if existe["hash_raw_json"] else ""
+                        # Si hash igual → skip silencioso (idempotencia)
+                        if hash_anterior == hash_nuevo and hash_anterior:
+                            sin_cambios += 1
+                            continue
+                        
+                        # Hash distinto → detectar diferencias específicas
+                        if hash_anterior and tiene_historial:
+                            cols_str = ", ".join(campos_monitoreados)
+                            row_ant = conn.execute(
+                                f"SELECT {cols_str} FROM {tabla} WHERE codigo_externo = ?",
+                                (codigo,)
+                            ).fetchone()
+                            antiguo = dict(row_ant) if row_ant else {}
+                            cambios = _detectar_cambios(antiguo, datos, campos_monitoreados)
+                            for campo, va, vn in cambios:
+                                _registrar_cambio_historial(conn, codigo, campo, va, vn, hash_anterior, hash_nuevo, fuente)
+                                cambios_detectados += 1
                     
-                    # Si hash igual → skip silencioso (idempotencia)
-                    if hash_anterior == hash_nuevo and hash_anterior:
-                        sin_cambios += 1
-                        continue
-                    
-                    # Hash distinto → detectar diferencias específicas
-                    if hash_anterior:  # Solo si tenemos hash previo (no nulo)
-                        # Cargar valores antiguos de los campos monitoreados
-                        cols_str = ", ".join(campos_monitoreados)
-                        row_ant = conn.execute(
-                            f"SELECT {cols_str} FROM {tabla} WHERE codigo_externo = ?",
-                            (codigo,)
-                        ).fetchone()
-                        antiguo = dict(row_ant) if row_ant else {}
-                        cambios = _detectar_cambios(antiguo, datos, campos_monitoreados)
-                        for campo, va, vn in cambios:
-                            _registrar_cambio_historial(conn, codigo, campo, va, vn, hash_anterior, hash_nuevo, fuente)
-                            cambios_detectados += 1
-                    
-                    # UPDATE
+                    # Construir UPDATE dinámico según columnas disponibles
                     if tabla == "mp_licitaciones_adj":
-                        conn.execute(f"""
-                            UPDATE {tabla}
-                            SET nombre=?, descripcion=?, monto_adjudicado=?, 
-                                fecha_adjudicacion=?, n_oferentes=?,
-                                url_mp_canonica=COALESCE(?, url_mp_canonica), 
-                                raw_json=?, hash_raw_json=?, fuente=?
-                            WHERE codigo_externo=?
-                        """, (
-                            datos["nombre"], datos["descripcion"], datos["monto_adjudicado"],
-                            datos["fecha_adjudicacion"], datos["n_oferentes"],
-                            datos["url_mp_canonica"], datos["raw_json"], 
-                            datos["hash_raw_json"], datos["fuente"], codigo
-                        ))
+                        sets = ["nombre=?", "descripcion=?", "monto_adjudicado=?", "fecha_adjudicacion=?", "n_oferentes=?", "raw_json=?"]
+                        vals = [datos["nombre"], datos["descripcion"], datos["monto_adjudicado"],
+                                datos["fecha_adjudicacion"], datos["n_oferentes"], datos["raw_json"]]
+                        if tiene_url_canonica:
+                            sets.append("url_mp_canonica=COALESCE(?, url_mp_canonica)")
+                            vals.append(datos["url_mp_canonica"])
+                        if tiene_hash:
+                            sets.append("hash_raw_json=?")
+                            vals.append(datos["hash_raw_json"])
+                        if tiene_fuente:
+                            sets.append("fuente=?")
+                            vals.append(datos["fuente"])
+                        vals.append(codigo)
+                        conn.execute(f"UPDATE {tabla} SET {', '.join(sets)} WHERE codigo_externo=?", vals)
                     else:
-                        conn.execute(f"""
-                            UPDATE {tabla}
-                            SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?,
-                                url_mp_canonica=COALESCE(?, url_mp_canonica), 
-                                raw_json=?, hash_raw_json=?, fuente=?
-                            WHERE codigo_externo=?
-                        """, (
-                            datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
-                            datos["monto_referencial"], datos["url_mp_canonica"],
-                            datos["raw_json"], datos["hash_raw_json"], datos["fuente"], codigo
-                        ))
+                        sets = ["nombre=?", "descripcion=?", "fecha_cierre=?", "monto_referencial=?", "raw_json=?"]
+                        vals = [datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
+                                datos["monto_referencial"], datos["raw_json"]]
+                        if tiene_url_canonica:
+                            sets.append("url_mp_canonica=COALESCE(?, url_mp_canonica)")
+                            vals.append(datos["url_mp_canonica"])
+                        if tiene_hash:
+                            sets.append("hash_raw_json=?")
+                            vals.append(datos["hash_raw_json"])
+                        if tiene_fuente:
+                            sets.append("fuente=?")
+                            vals.append(datos["fuente"])
+                        vals.append(codigo)
+                        conn.execute(f"UPDATE {tabla} SET {', '.join(sets)} WHERE codigo_externo=?", vals)
                     actualizadas += 1
                 else:
-                    # INSERT nuevo
+                    # INSERT dinámico según columnas disponibles
                     if tabla == "mp_licitaciones_adj":
-                        conn.execute(f"""
-                            INSERT INTO {tabla} (
-                                codigo_externo, nombre, descripcion, organismo, organismo_codigo,
-                                region, comuna, tipo, fecha_publicacion, fecha_cierre, fecha_adjudicacion,
-                                monto_referencial, monto_adjudicado, moneda, n_oferentes,
-                                proveedor_adjudicado, proveedor_rut, estado, pondera_precio_pct,
-                                url_mp_canonica, raw_json, hash_raw_json, fuente
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            datos["codigo_externo"], datos["nombre"], datos["descripcion"],
-                            datos["organismo"], datos["organismo_codigo"],
-                            datos["region"], datos["comuna"], datos["tipo"],
-                            datos["fecha_publicacion"], datos["fecha_cierre"], datos["fecha_adjudicacion"],
-                            datos["monto_referencial"], datos["monto_adjudicado"], datos["moneda"], datos["n_oferentes"],
-                            datos["proveedor_adjudicado"], datos["proveedor_rut"], "Adjudicada", datos["pondera_precio_pct"],
-                            datos["url_mp_canonica"], datos["raw_json"], 
-                            datos["hash_raw_json"], datos["fuente"]
-                        ))
+                        cols = ["codigo_externo", "nombre", "descripcion", "organismo", "organismo_codigo",
+                                "region", "comuna", "tipo", "fecha_publicacion", "fecha_cierre", "fecha_adjudicacion",
+                                "monto_referencial", "monto_adjudicado", "moneda", "n_oferentes",
+                                "proveedor_adjudicado", "proveedor_rut", "estado", "pondera_precio_pct", "raw_json"]
+                        vals = [datos["codigo_externo"], datos["nombre"], datos["descripcion"],
+                                datos["organismo"], datos["organismo_codigo"],
+                                datos["region"], datos["comuna"], datos["tipo"],
+                                datos["fecha_publicacion"], datos["fecha_cierre"], datos["fecha_adjudicacion"],
+                                datos["monto_referencial"], datos["monto_adjudicado"], datos["moneda"], datos["n_oferentes"],
+                                datos["proveedor_adjudicado"], datos["proveedor_rut"], "Adjudicada", datos["pondera_precio_pct"],
+                                datos["raw_json"]]
                     else:
-                        conn.execute(f"""
-                            INSERT INTO {tabla} (
-                                codigo_externo, nombre, descripcion, organismo, organismo_codigo,
-                                region, comuna, tipo, fecha_publicacion, fecha_cierre,
-                                monto_referencial, moneda, estado, url_mp_canonica, raw_json,
-                                hash_raw_json, fuente
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            datos["codigo_externo"], datos["nombre"], datos["descripcion"],
-                            datos["organismo"], datos["organismo_codigo"],
-                            datos["region"], datos["comuna"], datos["tipo"],
-                            datos["fecha_publicacion"], datos["fecha_cierre"],
-                            datos["monto_referencial"], datos["moneda"], datos["estado"],
-                            datos["url_mp_canonica"], datos["raw_json"],
-                            datos["hash_raw_json"], datos["fuente"]
-                        ))
+                        cols = ["codigo_externo", "nombre", "descripcion", "organismo", "organismo_codigo",
+                                "region", "comuna", "tipo", "fecha_publicacion", "fecha_cierre",
+                                "monto_referencial", "moneda", "estado", "raw_json"]
+                        vals = [datos["codigo_externo"], datos["nombre"], datos["descripcion"],
+                                datos["organismo"], datos["organismo_codigo"],
+                                datos["region"], datos["comuna"], datos["tipo"],
+                                datos["fecha_publicacion"], datos["fecha_cierre"],
+                                datos["monto_referencial"], datos["moneda"], datos["estado"],
+                                datos["raw_json"]]
+                    
+                    # Agregar columnas v18 si existen
+                    if tiene_url_canonica:
+                        cols.append("url_mp_canonica")
+                        vals.append(datos["url_mp_canonica"])
+                    if tiene_hash:
+                        cols.append("hash_raw_json")
+                        vals.append(datos["hash_raw_json"])
+                    if tiene_fuente:
+                        cols.append("fuente")
+                        vals.append(datos["fuente"])
+                    
+                    placeholders = ", ".join(["?"] * len(vals))
+                    cols_str = ", ".join(cols)
+                    conn.execute(f"INSERT INTO {tabla} ({cols_str}) VALUES ({placeholders})", vals)
                     nuevas += 1
                 
-                # Enriquecer la licitación recién persistida (idempotente)
-                try:
-                    enriquecer_codigo(codigo, conn=conn, fuente_cambio=fuente)
-                except Exception as e:
-                    logger.warning(f"Error enriqueciendo {codigo}: {e}")
+                # Enriquecer (defensivo: solo si está disponible y hay tablas v18)
+                if enriquecer_codigo is not None:
+                    try:
+                        enriquecer_codigo(codigo, conn=conn, fuente_cambio=fuente)
+                    except Exception as e:
+                        logger.debug(f"Skip enriquecimiento {codigo}: {e}")
             except Exception as e:
                 logger.error(f"Error persistiendo {codigo}: {e}")
                 fallidas += 1
