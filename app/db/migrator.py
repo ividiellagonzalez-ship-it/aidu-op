@@ -20,9 +20,10 @@ Flujo en cada arranque:
 import sqlite3
 import shutil
 import logging
+import os
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from config.settings import DB_PATH, BACKUP_DIR
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,166 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 MIGRATIONS_DIR.mkdir(exist_ok=True)
 
 
-def get_connection() -> sqlite3.Connection:
-    """Conexión SQLite con foreign keys activas y row_factory dict-like"""
+# ============================================================
+# Capa de persistencia Turso (S12.1)
+# ============================================================
+# El contenedor de Streamlit Cloud borra /tmp en cada reboot, perdiendo la
+# BD madre. Para fijarlo sin romper los ~80 callsites de get_connection(),
+# usamos libsql-experimental en modo "embedded replica":
+#   - Mantiene una réplica local del archivo SQLite en DB_PATH.
+#   - Al arranque, hidrata DB_PATH desde la BD remota Turso.
+#   - Después de cada commit local, pushea los cambios a Turso.
+# Las queries y la API siguen pasando por sqlite3.Connection nativo, así que
+# row_factory, sqlite3.Row, sqlite3.OperationalError y demás se comportan igual.
+# Cuando no hay credenciales Turso (modo dev / CI), todo cae al SQLite local
+# de siempre — comportamiento previo intacto.
+
+_TURSO_CONN = None  # libsql.Connection persistente, solo para sync
+_TURSO_AVAILABLE: Optional[bool] = None  # cache del último intento de conexión
+
+
+def _read_turso_credentials() -> Optional[Tuple[str, str]]:
+    """
+    Lee TURSO_DATABASE_URL + TURSO_AUTH_TOKEN desde st.secrets (Streamlit Cloud)
+    o variables de entorno (local). Devuelve (url, token) si ambas existen y no
+    están vacías, o None si Turso no está configurado.
+    """
+    url, token = "", ""
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            url = (st.secrets.get("TURSO_DATABASE_URL", "") or "").strip()
+            token = (st.secrets.get("TURSO_AUTH_TOKEN", "") or "").strip()
+    except Exception:
+        pass
+    if not url:
+        url = os.environ.get("TURSO_DATABASE_URL", "").strip()
+    if not token:
+        token = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+    if url and token:
+        return url, token
+    return None
+
+
+def _ensure_turso_replica() -> bool:
+    """
+    Garantiza que la replica embebida con Turso esté lista. Idempotente:
+    la primera llamada abre la libsql.Connection y sincroniza desde Turso;
+    llamadas posteriores reutilizan la conexión y solo re-sincronizan.
+    Si falla (libsql no instalado, credenciales inválidas, red caída), cae
+    a modo SQLite puro y cachea el fallo para no reintentar en cada query.
+    Devuelve True si Turso quedó activo, False si modo SQLite local.
+    """
+    global _TURSO_CONN, _TURSO_AVAILABLE
+    if _TURSO_AVAILABLE is False:
+        return False
+    creds = _read_turso_credentials()
+    if creds is None:
+        _TURSO_AVAILABLE = False
+        return False
+    try:
+        if _TURSO_CONN is None:
+            import libsql_experimental as libsql  # noqa: WPS433
+            url, token = creds
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _TURSO_CONN = libsql.connect(
+                str(DB_PATH), sync_url=url, auth_token=token,
+            )
+        _TURSO_CONN.sync()
+        _TURSO_AVAILABLE = True
+        return True
+    except Exception as e:
+        logger.error(f"❌ Turso no disponible, opero contra SQLite local: {e}")
+        _TURSO_AVAILABLE = False
+        return False
+
+
+def sync_to_turso() -> bool:
+    """
+    Pushea cambios locales a Turso. Llamada automáticamente desde el proxy
+    `_TursoConnectionProxy.commit()` y `__exit__()`. Silenciosa si Turso no
+    está configurado. Devuelve True si el sync se ejecutó.
+    """
+    global _TURSO_CONN, _TURSO_AVAILABLE
+    if not _TURSO_AVAILABLE or _TURSO_CONN is None:
+        return False
+    try:
+        _TURSO_CONN.sync()
+        return True
+    except Exception as e:
+        logger.warning(f"⚠️ sync→Turso falló: {e}")
+        return False
+
+
+class _TursoConnectionProxy:
+    """
+    Proxy fino sobre sqlite3.Connection que dispara `sync_to_turso()` después
+    de cada `commit()` exitoso (y al salir limpio de un `with`). Solo se usa
+    cuando hay credenciales Turso; en dev/CI `get_connection()` devuelve la
+    sqlite3.Connection nativa sin envolver.
+
+    No es un sqlite3.Connection real (sqlite3.Connection no admite subclassing
+    limpio en CPython). Acceso por atributo y métodos no especiales se delegan
+    via __getattr__. Si algún callsite hiciera `isinstance(conn, sqlite3.Connection)`
+    fallaría — verificado: cero ocurrencias en el repo.
+    """
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: sqlite3.Connection):
+        object.__setattr__(self, "_conn", conn)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        if name == "_conn":
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._conn, name, value)
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        ret = self._conn.__exit__(exc_type, exc_val, exc_tb)
+        if exc_type is None:
+            sync_to_turso()
+        return ret
+
+    def commit(self):
+        self._conn.commit()
+        sync_to_turso()
+
+
+def get_connection():
+    """
+    Conexión SQLite con foreign keys activas y row_factory dict-like.
+
+    Comportamiento:
+    - Sin TURSO_DATABASE_URL/TURSO_AUTH_TOKEN: sqlite3.connect(DB_PATH) puro
+      (modo dev/CI, idéntico al comportamiento previo a S12.1).
+    - Con credenciales Turso: hidrata DB_PATH desde la BD remota vía
+      libsql-experimental antes de abrir, y devuelve un proxy que pushea a
+      Turso después de cada commit. Esto fija la pérdida de datos en cold
+      starts del contenedor Streamlit Cloud.
+
+    El tipo devuelto es sqlite3.Connection o un proxy con la misma API
+    (__getattr__ delega al sqlite3.Connection subyacente).
+    """
+    turso_active = _ensure_turso_replica()
+
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")  # Mejor concurrencia
+    if not turso_active:
+        # WAL es incompatible con la réplica embebida de libsql sobre el
+        # mismo archivo (libsql usa su propio walhook). En modo Turso lo
+        # saltamos; en SQLite local lo mantenemos por concurrencia.
+        conn.execute("PRAGMA journal_mode = WAL")
+
+    if turso_active:
+        return _TursoConnectionProxy(conn)
     return conn
 
 
