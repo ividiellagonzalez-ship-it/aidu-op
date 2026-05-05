@@ -65,7 +65,20 @@ def _endpoint() -> tuple[str, dict]:
 
 
 def _arg(value) -> dict:
-    """Convierte un valor Python al formato {type, value} de Turso."""
+    """
+    Convierte un valor Python al formato {type, value} del protocolo Hrana
+    (endpoint /v2/pipeline de Turso).
+
+    Cuidado con los tipos JSON: el protocolo es estricto.
+    - integer: `value` debe ser STRING (decimal). JSON no representa int64
+      con precisión y Hrana lo serializa como string para evitar pérdida.
+    - float:   `value` debe ser un NÚMERO JSON crudo (NO string). Si se manda
+      como string Turso responde HTTP 400 'invalid type: string "1.0",
+      expected f64' — bug que motivó S12.1.5.bis.
+    - text:    `value` debe ser string.
+    - null:    `value` debe ser null.
+    - blob:    se envía bajo la clave `base64` (no `value`).
+    """
     if value is None:
         return {"type": "null", "value": None}
     if isinstance(value, bool):
@@ -73,11 +86,47 @@ def _arg(value) -> dict:
     if isinstance(value, int):
         return {"type": "integer", "value": str(value)}
     if isinstance(value, float):
-        return {"type": "float", "value": str(value)}
+        # Número JSON crudo, NO string. json.dumps emite 1.0 sin comillas.
+        return {"type": "float", "value": value}
     if isinstance(value, (bytes, bytearray)):
         import base64
         return {"type": "blob", "base64": base64.b64encode(bytes(value)).decode()}
     return {"type": "text", "value": str(value)}
+
+
+def _coerce(value, sqlite_type: str):
+    """
+    Coerciona el valor Python al tipo afín de la columna SQLite/Turso destino.
+
+    SQLite tiene tipado dinámico flexible: un row con un INTEGER en una columna
+    REAL queda almacenado como int. Cuando ese mismo row se envía vía Hrana a
+    Turso, va como `{"type":"integer","value":"X"}`, y Turso (más estricto)
+    rechaza con HTTP 400 'expected f64'. Esta función normaliza al tipo de
+    afinidad declarado en el schema antes de llamar a _arg.
+
+    No coacciona NULL (NULL es válido para cualquier afinidad).
+    Si la conversión falla (TypeError/ValueError) devuelve el valor original
+    para que el error del servidor sea claro y diagnosticable.
+    """
+    if value is None:
+        return None
+    t = (sqlite_type or "").upper()
+    if "INT" in t:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    if "REAL" in t or "FLOA" in t or "DOUB" in t or "NUM" in t:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return value
+    if "BLOB" in t:
+        if isinstance(value, str):
+            return value.encode("utf-8")
+        return value
+    # TEXT y todo lo demás: dejar como está
+    return value
 
 
 def _execute(http_url, headers, statements: list[dict]) -> list[dict]:
@@ -109,6 +158,34 @@ def _table_exists(http_url, headers, table: str) -> bool:
     if res.get("type") == "ok":
         return len(res["response"]["result"]["rows"]) > 0
     return False
+
+
+def _column_types(http_url, headers, table: str) -> dict:
+    """
+    Devuelve dict {nombre_columna: tipo_sqlite_upper} para las columnas de la
+    tabla en Turso. Usa PRAGMA table_info contra la BD remota. Devuelve {} si
+    la tabla no existe o falla la query.
+
+    Necesario para coercer valores antes del INSERT: SQLite acepta tipos
+    "afínes" (un INT en columna REAL queda como int), pero Hrana es estricto.
+    """
+    res = _execute(http_url, headers, [{"sql": f'PRAGMA table_info("{table}")'}])[0]
+    if res.get("type") != "ok":
+        return {}
+    result = res.get("response", {}).get("result", {})
+    rows = result.get("rows", [])
+    types: dict = {}
+    for row in rows:
+        # PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
+        if len(row) < 3:
+            continue
+        name_cell = row[1] or {}
+        type_cell = row[2] or {}
+        name = name_cell.get("value")
+        col_type = (type_cell.get("value") or "").upper()
+        if name:
+            types[name] = col_type
+    return types
 
 
 # ============================================================
@@ -209,15 +286,25 @@ def dump_seed(http_url, headers) -> None:
                 print(f"  ➖ {tbl}: 0 filas en seed, skip")
                 continue
 
-            cols = rows[0].keys()
+            cols = list(rows[0].keys())
             col_list = ",".join(f'"{c}"' for c in cols)
             placeholders = ",".join("?" * len(cols))
             sql = f'INSERT INTO "{tbl}" ({col_list}) VALUES ({placeholders})'
 
+            # Tipos de las columnas según el schema en Turso, para coercer
+            # los valores Python al tipo afín antes de mandarlos a Hrana.
+            col_types = _column_types(http_url, headers, tbl)
+
             n_total = 0
             for i in range(0, len(rows), BATCH_SIZE):
                 batch = rows[i:i + BATCH_SIZE]
-                stmts = [{"sql": sql, "args": [_arg(v) for v in row]} for row in batch]
+                stmts = []
+                for row in batch:
+                    args = []
+                    for col_name, value in zip(cols, row):
+                        coerced = _coerce(value, col_types.get(col_name, ""))
+                        args.append(_arg(coerced))
+                    stmts.append({"sql": sql, "args": args})
                 results = _execute(http_url, headers, stmts)
                 for j, res in enumerate(results):
                     if res.get("type") == "error":
@@ -241,20 +328,26 @@ def insert_homologacion(http_url, headers) -> None:
         print(f"⏭️  aidu_homologacion_categoria: ya tiene {n_remote} filas en Turso, skip")
         return
     print(f"🌱 Insertando {len(SEED_HOMOLOGACION)} categorías AIDU en aidu_homologacion_categoria...")
-    sql = """
-        INSERT INTO aidu_homologacion_categoria
-        (cod_servicio_aidu, nombre_servicio, linea, hh_tipicas, plazo_dias_tipico,
-         entregables_tipicos, aplica_m2, m2_referencia, notas)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    cols = ["cod_servicio_aidu", "nombre_servicio", "linea", "hh_tipicas",
+            "plazo_dias_tipico", "entregables_tipicos", "aplica_m2",
+            "m2_referencia", "notas"]
+    sql = f"""
+        INSERT INTO aidu_homologacion_categoria ({",".join(cols)})
+        VALUES ({",".join("?" * len(cols))})
     """
+    # Coerción defensiva contra el schema (las claves de SEED_HOMOLOGACION son
+    # int Python, las columnas son INTEGER — coincide, pero la coerción
+    # protege ante futuros valores agregados con tipo distinto).
+    col_types = _column_types(http_url, headers, "aidu_homologacion_categoria")
     stmts = []
     for item in SEED_HOMOLOGACION:
-        args = [
-            _arg(item["cod"]), _arg(item["nombre"]), _arg(item["linea"]),
-            _arg(item["hh"]), _arg(item["plazo"]),
-            _arg(item["entregables"]), _arg(item["aplica_m2"]),
-            _arg(item["m2_ref"]), _arg(item["notas"]),
+        raw_values = [
+            item["cod"], item["nombre"], item["linea"],
+            item["hh"], item["plazo"],
+            item["entregables"], item["aplica_m2"],
+            item["m2_ref"], item["notas"],
         ]
+        args = [_arg(_coerce(v, col_types.get(c, ""))) for c, v in zip(cols, raw_values)]
         stmts.append({"sql": sql, "args": args})
     results = _execute(http_url, headers, stmts)
     for j, res in enumerate(results):
