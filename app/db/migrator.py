@@ -164,6 +164,162 @@ class _TursoConnectionProxy:
         sync_to_turso()
 
 
+# ============================================================
+# Propagación de DDL → Turso (S12.1.5)
+# ============================================================
+# Bug encontrado en validación post-deploy de S12.1: el proxy de arriba
+# propaga DML automáticamente al hacer commit (libsql sync), pero las
+# páginas de schema (CREATE/ALTER/INDEX/DROP) NO viajan por sync. Resultado:
+# las migraciones del repo dejaban schema en /tmp/AIDU_Op pero Turso quedaba
+# vacío. La app aparentaba funcionar por el fallback data_semilla → /tmp.
+#
+# Fix: cuando hay credenciales Turso, los statements DDL viajan por canal
+# separado (HTTP /v2/pipeline) además de aplicarse al SQLite local. DML
+# sigue viajando por sync vía el proxy (sin cambios). Sin credenciales,
+# todos los helpers de abajo son no-op silenciosos.
+
+# Errores tolerables: la migración intenta crear algo que ya existe.
+# Compartido entre apply_migration, _auto_reparar_schema y los helpers DDL
+# para que la idempotencia funcione uniforme contra local y contra Turso.
+TOLERABLE_ERRORS = (
+    "duplicate column name",
+    "already exists",
+)
+
+_DDL_PREFIXES = ("CREATE ", "ALTER ", "DROP ", "REINDEX ")
+
+
+def _is_ddl(stmt: str) -> bool:
+    """
+    Heurística: la primera palabra significativa indica DDL. Suficientemente
+    precisa para los statements del repo (CREATE TABLE, ALTER TABLE, CREATE
+    INDEX, DROP INDEX). Falso para INSERT/UPDATE/DELETE/SELECT.
+    """
+    head = stmt.lstrip().upper()
+    return any(head.startswith(p) for p in _DDL_PREFIXES)
+
+
+def _execute_on_turso(sql: str) -> bool:
+    """
+    Ejecuta un statement contra Turso vía HTTP /v2/pipeline. No-op silencioso
+    si no hay credenciales (modo dev/CI).
+
+    Errores remotos se mapean a sqlite3.OperationalError para que el caller
+    use su tolerancia existente (TOLERABLE_ERRORS) sin distinguir local/remoto.
+    Devuelve True si la llamada se ejecutó (con o sin éxito tolerable).
+    """
+    creds = _read_turso_credentials()
+    if creds is None:
+        return False
+    url, token = creds
+    http_url = url.replace("libsql://", "https://", 1).rstrip("/") + "/v2/pipeline"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "requests": [
+            {"type": "execute", "stmt": {"sql": sql}},
+            {"type": "close"},
+        ]
+    }
+    try:
+        import requests  # noqa: WPS433
+        r = requests.post(http_url, headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
+    except Exception as e:
+        raise sqlite3.OperationalError(f"Turso HTTP: {e}")
+    body = r.json()
+    for result in body.get("results", []):
+        if result.get("type") == "error":
+            err = result.get("error", {}).get("message", "Turso error")
+            raise sqlite3.OperationalError(err)
+    return True
+
+
+def _query_on_turso(sql: str, params: Optional[list] = None) -> list:
+    """
+    Ejecuta SELECT contra Turso vía HTTP. Devuelve lista de tuplas con los
+    valores ya extraídos del formato `{type, value}` del endpoint /v2/pipeline.
+    Retorna [] si no hay credenciales. Errores remotos → sqlite3.OperationalError.
+    """
+    creds = _read_turso_credentials()
+    if creds is None:
+        return []
+    url, token = creds
+    http_url = url.replace("libsql://", "https://", 1).rstrip("/") + "/v2/pipeline"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    stmt: dict = {"sql": sql}
+    if params:
+        args = []
+        for p in params:
+            if p is None:
+                args.append({"type": "null", "value": None})
+            elif isinstance(p, bool):
+                args.append({"type": "integer", "value": str(int(p))})
+            elif isinstance(p, int):
+                args.append({"type": "integer", "value": str(p)})
+            elif isinstance(p, float):
+                args.append({"type": "float", "value": str(p)})
+            else:
+                args.append({"type": "text", "value": str(p)})
+        stmt["args"] = args
+    payload = {
+        "requests": [
+            {"type": "execute", "stmt": stmt},
+            {"type": "close"},
+        ]
+    }
+    try:
+        import requests  # noqa: WPS433
+        r = requests.post(http_url, headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
+    except Exception as e:
+        raise sqlite3.OperationalError(f"Turso HTTP: {e}")
+    body = r.json()
+    rows: list = []
+    for result in body.get("results", []):
+        if result.get("type") == "error":
+            raise sqlite3.OperationalError(
+                result.get("error", {}).get("message", "Turso error")
+            )
+        if result.get("type") == "ok":
+            response = result.get("response", {}).get("result", {})
+            for row in response.get("rows", []):
+                rows.append(tuple(cell.get("value") for cell in row))
+    return rows
+
+
+def _apply_ddl_idempotent(conn: sqlite3.Connection, stmt: str) -> bool:
+    """
+    Aplica un statement DDL al SQLite local Y a Turso (si hay credenciales).
+    Tolera 'already exists' / 'duplicate column' (idempotencia de migraciones).
+
+    Devuelve True si alguno de los lados toleró el error (statement ya
+    aplicado previamente). Levanta sqlite3.OperationalError ante errores
+    no-tolerables, dejando al caller decidir qué hacer.
+    """
+    tolerated = False
+    try:
+        conn.execute(stmt)
+    except sqlite3.OperationalError as e:
+        if any(t in str(e).lower() for t in TOLERABLE_ERRORS):
+            tolerated = True
+        else:
+            raise
+    try:
+        _execute_on_turso(stmt)
+    except sqlite3.OperationalError as e:
+        if any(t in str(e).lower() for t in TOLERABLE_ERRORS):
+            tolerated = True
+        else:
+            raise
+    return tolerated
+
+
 def get_connection():
     """
     Conexión SQLite con foreign keys activas y row_factory dict-like.
@@ -255,32 +411,35 @@ def apply_migration(conn: sqlite3.Connection, migration_file: Path) -> bool:
     sql = migration_file.read_text(encoding="utf-8")
     desc_line = next((l for l in sql.splitlines() if l.startswith("-- DESC:")), "")
     description = desc_line.replace("-- DESC:", "").strip() or migration_file.stem
-    
-    # Errores tolerables: la migración intenta crear algo que ya existe
-    TOLERABLE_ERRORS = (
-        "duplicate column name",
-        "already exists",
-    )
-    
+
     statements = _split_sql_statements(sql)
     errores_tolerados = 0
-    
+
     try:
         for stmt in statements:
-            stmt = stmt.strip()
-            if not stmt or stmt.startswith("--"):
+            stmt = _strip_leading_comments(stmt)
+            if not stmt:
                 continue
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError as e:
-                msg = str(e).lower()
-                if any(err in msg for err in TOLERABLE_ERRORS):
-                    errores_tolerados += 1
-                    logger.warning(f"⚠️  Sentencia tolerada en {migration_file.name}: {e}")
-                    continue
-                # Error real: propagar
-                raise
-        
+            if _is_ddl(stmt):
+                # DDL: local + Turso (canal HTTP). Tolerancia compartida.
+                try:
+                    if _apply_ddl_idempotent(conn, stmt):
+                        errores_tolerados += 1
+                except sqlite3.OperationalError as e:
+                    logger.warning(f"⚠️  DDL no aplicado en {migration_file.name}: {e}")
+                    raise
+            else:
+                # DML: solo local. La sincronización a Turso ocurre en commit() vía proxy.
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError as e:
+                    msg = str(e).lower()
+                    if any(err in msg for err in TOLERABLE_ERRORS):
+                        errores_tolerados += 1
+                        logger.warning(f"⚠️  Sentencia tolerada en {migration_file.name}: {e}")
+                        continue
+                    raise
+
         conn.execute(
             "INSERT INTO _migrations (filename, description) VALUES (?, ?)",
             (migration_file.name, description)
@@ -304,6 +463,24 @@ def _split_sql_statements(sql: str) -> list:
     """
     # Para nuestras migraciones (sin literales complejos), split por ';' funciona
     return [s for s in sql.split(';') if s.strip()]
+
+
+def _strip_leading_comments(stmt: str) -> str:
+    """
+    Quita líneas de comentario `--` y líneas vacías al inicio de un chunk.
+
+    Necesario porque _split_sql_statements solo separa por `;`, dejando
+    los comentarios pegados al statement que les sigue. Si no se limpia,
+    `stmt.startswith("--")` da true y el statement entero queda descartado
+    junto con sus comentarios — bug pre-existente que en producción no se
+    notaba porque data_semilla ya traía el schema aplicado, pero sí rompe
+    el camino "migrar contra una BD vacía" que es exactamente lo que
+    necesita el bootstrap de S12.1.5.
+    """
+    lines = stmt.split("\n")
+    while lines and (not lines[0].strip() or lines[0].lstrip().startswith("--")):
+        lines.pop(0)
+    return "\n".join(lines).strip()
 
 
 
@@ -408,20 +585,19 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
         except Exception:
             continue
         
-        # Para cada columna requerida, intentar agregarla
+        # Para cada columna requerida, intentar agregarla (local + Turso)
         for col_name, col_type in columnas:
+            stmt = f"ALTER TABLE {tabla} ADD COLUMN {col_name} {col_type}"
             try:
-                conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {col_name} {col_type}")
-                reparados += 1
+                tolerated = _apply_ddl_idempotent(conn, stmt)
+                if not tolerated:
+                    reparados += 1
             except sqlite3.OperationalError as e:
-                if "duplicate column name" in str(e).lower():
-                    pass  # Ya existe, perfecto
-                else:
-                    logger.warning(f"⚠️  No se pudo reparar {tabla}.{col_name}: {e}")
-    
-    # Tabla proy_consultas
+                logger.warning(f"⚠️  No se pudo reparar {tabla}.{col_name}: {e}")
+
+    # Tabla proy_consultas (local + Turso)
     try:
-        conn.execute("""
+        _apply_ddl_idempotent(conn, """
             CREATE TABLE IF NOT EXISTS proy_consultas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 proyecto_id INTEGER NOT NULL,
@@ -536,11 +712,11 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
     
     for nombre_tabla, sql_create in tablas_v18:
         try:
-            conn.execute(sql_create)
+            _apply_ddl_idempotent(conn, sql_create)
         except Exception as e:
             logger.warning(f"⚠️  No se pudo crear {nombre_tabla}: {e}")
-    
-    # Índices v18
+
+    # Índices v18 (local + Turso)
     indices_v18 = [
         "CREATE INDEX IF NOT EXISTS idx_proveedores_nombre ON mp_proveedores(nombre)",
         "CREATE INDEX IF NOT EXISTS idx_proveedores_monto ON mp_proveedores(monto_total_adjudicado DESC)",
@@ -555,7 +731,7 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
     ]
     for sql_idx in indices_v18:
         try:
-            conn.execute(sql_idx)
+            _apply_ddl_idempotent(conn, sql_idx)
         except Exception:
             pass
     
@@ -595,7 +771,7 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
     ]
     for nombre_tabla, sql_create in tablas_homologacion:
         try:
-            conn.execute(sql_create)
+            _apply_ddl_idempotent(conn, sql_create)
         except Exception as e:
             logger.warning(f"⚠️  No se pudo crear {nombre_tabla}: {e}")
     
