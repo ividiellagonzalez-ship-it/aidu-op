@@ -40,6 +40,12 @@ REPO = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO / "app" / "db" / "migrations"
 SEED_DB = REPO / "data_semilla" / "aidu_op.db"
 
+# Helpers Hrana compartidos con app/db/migrator.py. Antes vivían duplicados acá
+# (S12.1.5) y en migrator (con un bug str(float) que rompía queries float).
+# S12.2 los centralizó en app/db/_hrana_types para evitar drift.
+sys.path.insert(0, str(REPO))
+from app.db._hrana_types import arg_for_value as _arg, coerce_for_column as _coerce  # noqa: E402
+
 # Conteos esperados según criterio #2 del sprint S12.1.5
 EXPECTED_COUNTS = {
     "mp_licitaciones_adj": 19,
@@ -62,71 +68,6 @@ def _endpoint() -> tuple[str, dict]:
     http_url = url.replace("libsql://", "https://", 1).rstrip("/") + "/v2/pipeline"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     return http_url, headers
-
-
-def _arg(value) -> dict:
-    """
-    Convierte un valor Python al formato {type, value} del protocolo Hrana
-    (endpoint /v2/pipeline de Turso).
-
-    Cuidado con los tipos JSON: el protocolo es estricto.
-    - integer: `value` debe ser STRING (decimal). JSON no representa int64
-      con precisión y Hrana lo serializa como string para evitar pérdida.
-    - float:   `value` debe ser un NÚMERO JSON crudo (NO string). Si se manda
-      como string Turso responde HTTP 400 'invalid type: string "1.0",
-      expected f64' — bug que motivó S12.1.5.bis.
-    - text:    `value` debe ser string.
-    - null:    `value` debe ser null.
-    - blob:    se envía bajo la clave `base64` (no `value`).
-    """
-    if value is None:
-        return {"type": "null", "value": None}
-    if isinstance(value, bool):
-        return {"type": "integer", "value": str(int(value))}
-    if isinstance(value, int):
-        return {"type": "integer", "value": str(value)}
-    if isinstance(value, float):
-        # Número JSON crudo, NO string. json.dumps emite 1.0 sin comillas.
-        return {"type": "float", "value": value}
-    if isinstance(value, (bytes, bytearray)):
-        import base64
-        return {"type": "blob", "base64": base64.b64encode(bytes(value)).decode()}
-    return {"type": "text", "value": str(value)}
-
-
-def _coerce(value, sqlite_type: str):
-    """
-    Coerciona el valor Python al tipo afín de la columna SQLite/Turso destino.
-
-    SQLite tiene tipado dinámico flexible: un row con un INTEGER en una columna
-    REAL queda almacenado como int. Cuando ese mismo row se envía vía Hrana a
-    Turso, va como `{"type":"integer","value":"X"}`, y Turso (más estricto)
-    rechaza con HTTP 400 'expected f64'. Esta función normaliza al tipo de
-    afinidad declarado en el schema antes de llamar a _arg.
-
-    No coacciona NULL (NULL es válido para cualquier afinidad).
-    Si la conversión falla (TypeError/ValueError) devuelve el valor original
-    para que el error del servidor sea claro y diagnosticable.
-    """
-    if value is None:
-        return None
-    t = (sqlite_type or "").upper()
-    if "INT" in t:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return value
-    if "REAL" in t or "FLOA" in t or "DOUB" in t or "NUM" in t:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return value
-    if "BLOB" in t:
-        if isinstance(value, str):
-            return value.encode("utf-8")
-        return value
-    # TEXT y todo lo demás: dejar como está
-    return value
 
 
 def _execute(http_url, headers, statements: list[dict]) -> list[dict]:

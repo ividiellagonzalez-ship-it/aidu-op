@@ -199,53 +199,23 @@ def _is_ddl(stmt: str) -> bool:
     return any(head.startswith(p) for p in _DDL_PREFIXES)
 
 
-def _execute_on_turso(sql: str) -> bool:
+def _hrana_post(sql: str, params: Optional[list] = None) -> dict:
     """
-    Ejecuta un statement contra Turso vía HTTP /v2/pipeline. No-op silencioso
-    si no hay credenciales (modo dev/CI).
+    POST a /v2/pipeline contra Turso con un único statement. Helper privado
+    de migrator: construye payload, parametriza args via _hrana_types,
+    devuelve el body JSON. None si no hay credenciales (modo dev/CI).
 
-    Errores remotos se mapean a sqlite3.OperationalError para que el caller
-    use su tolerancia existente (TOLERABLE_ERRORS) sin distinguir local/remoto.
-    Devuelve True si la llamada se ejecutó (con o sin éxito tolerable).
+    Conversión Hrana centralizada en app/db/_hrana_types (S12.2). Antes,
+    _query_on_turso construía args inline y serializaba floats como string
+    -- bug que rompía cualquier query con parámetro float (HTTP 400 'expected
+    f64'). Ahora ambos helpers (_execute_on_turso y _query_on_turso) tiran
+    del mismo arg_for_value que ya validó el bootstrap S12.1.5.
     """
+    from app.db._hrana_types import arg_for_value  # noqa: WPS433
+
     creds = _read_turso_credentials()
     if creds is None:
-        return False
-    url, token = creds
-    http_url = url.replace("libsql://", "https://", 1).rstrip("/") + "/v2/pipeline"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "requests": [
-            {"type": "execute", "stmt": {"sql": sql}},
-            {"type": "close"},
-        ]
-    }
-    try:
-        import requests  # noqa: WPS433
-        r = requests.post(http_url, headers=headers, json=payload, timeout=30)
-        r.raise_for_status()
-    except Exception as e:
-        raise sqlite3.OperationalError(f"Turso HTTP: {e}")
-    body = r.json()
-    for result in body.get("results", []):
-        if result.get("type") == "error":
-            err = result.get("error", {}).get("message", "Turso error")
-            raise sqlite3.OperationalError(err)
-    return True
-
-
-def _query_on_turso(sql: str, params: Optional[list] = None) -> list:
-    """
-    Ejecuta SELECT contra Turso vía HTTP. Devuelve lista de tuplas con los
-    valores ya extraídos del formato `{type, value}` del endpoint /v2/pipeline.
-    Retorna [] si no hay credenciales. Errores remotos → sqlite3.OperationalError.
-    """
-    creds = _read_turso_credentials()
-    if creds is None:
-        return []
+        return {}
     url, token = creds
     http_url = url.replace("libsql://", "https://", 1).rstrip("/") + "/v2/pipeline"
     headers = {
@@ -254,19 +224,7 @@ def _query_on_turso(sql: str, params: Optional[list] = None) -> list:
     }
     stmt: dict = {"sql": sql}
     if params:
-        args = []
-        for p in params:
-            if p is None:
-                args.append({"type": "null", "value": None})
-            elif isinstance(p, bool):
-                args.append({"type": "integer", "value": str(int(p))})
-            elif isinstance(p, int):
-                args.append({"type": "integer", "value": str(p)})
-            elif isinstance(p, float):
-                args.append({"type": "float", "value": str(p)})
-            else:
-                args.append({"type": "text", "value": str(p)})
-        stmt["args"] = args
+        stmt["args"] = [arg_for_value(p) for p in params]
     payload = {
         "requests": [
             {"type": "execute", "stmt": stmt},
@@ -279,7 +237,47 @@ def _query_on_turso(sql: str, params: Optional[list] = None) -> list:
         r.raise_for_status()
     except Exception as e:
         raise sqlite3.OperationalError(f"Turso HTTP: {e}")
-    body = r.json()
+    return r.json()
+
+
+def _execute_on_turso(sql: str, params: Optional[list] = None) -> bool:
+    """
+    Ejecuta un statement contra Turso vía HTTP /v2/pipeline. No-op silencioso
+    si no hay credenciales (modo dev/CI).
+
+    Errores remotos se mapean a sqlite3.OperationalError para que el caller
+    use su tolerancia existente (TOLERABLE_ERRORS) sin distinguir local/remoto.
+    Devuelve True si la llamada se ejecutó (con o sin éxito tolerable).
+
+    S12.2: agrega soporte opcional de `params` para parametrizar DDL/DML
+    (antes solo SQL crudo). Pasa por arg_for_value para que floats viajen
+    como número JSON crudo, no como string.
+    """
+    body = _hrana_post(sql, params)
+    if not body:
+        return False
+    for result in body.get("results", []):
+        if result.get("type") == "error":
+            err = result.get("error", {}).get("message", "Turso error")
+            raise sqlite3.OperationalError(err)
+    return True
+
+
+def _query_on_turso(sql: str, params: Optional[list] = None) -> list:
+    """
+    Ejecuta SELECT contra Turso vía HTTP. Devuelve lista de tuplas con los
+    valores ya extraídos del formato `{type, value}` del endpoint /v2/pipeline.
+    Retorna [] si no hay credenciales. Errores remotos → sqlite3.OperationalError.
+
+    S12.2: la construcción de args delega en app/db/_hrana_types.arg_for_value.
+    Esto fixea un bug latente que serializaba floats como string causando
+    HTTP 400 'expected f64' — el mismo bug que rompía el bootstrap antes
+    del fix de S12.1.5.bis. Único call site externo conocido: app/db/health_check.py
+    (solo passes ints/strings, así que el bug nunca se disparó en producción).
+    """
+    body = _hrana_post(sql, params)
+    if not body:
+        return []
     rows: list = []
     for result in body.get("results", []):
         if result.get("type") == "error":

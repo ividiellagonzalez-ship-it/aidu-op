@@ -1,0 +1,64 @@
+name: Descarga diaria Mercado Publico a Turso
+
+# S12.2 - Reemplaza descarga_mp_diaria.yml.disabled (legacy con commit-back).
+# Diferencias clave:
+#   - Sin permissions: contents: write. El workflow no commitea al repo.
+#   - Sin restaurar/sincronizar data_semilla/aidu_op.db. La BD madre vive
+#     en Turso; app.db.migrator.get_connection() la enruta automaticamente
+#     cuando hay TURSO_DATABASE_URL + TURSO_AUTH_TOKEN en env vars.
+#   - Cubre AGIL (MVP comercial AIDU) en la misma corrida — la extension
+#     vive en app/core/descarga_diaria.ejecutar_descarga.
+#   - Exit codes diferenciados (0/1/2) para diagnostico operacional.
+
+on:
+  schedule:
+    # 7 AM Chile. Chile usa UTC-4 (DST verano) y UTC-3 (estandar invierno).
+    # 10:00 UTC = 7 AM Chile en horario de verano (oct-abr).
+    # En horario estandar el cron disparara a las 6 AM Chile, no 7. Aceptable.
+    # Programar dos crons por DST seria mas preciso pero cron tradicional no
+    # soporta zonas horarias; el patron habitual es elegir la ventana mas critica.
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      dias_atras:
+        description: 'Dias hacia atras a descargar (default 2, max 30)'
+        required: false
+        default: '2'
+
+# Sin permissions: contents: write. Solo lectura del checkout (default).
+permissions:
+  contents: read
+
+jobs:
+  descarga:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout codigo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar descarga MP a Turso
+        env:
+          # Credenciales API Mercado Publico
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+          # Persistencia: cuando estos dos esten presentes,
+          # app.db.migrator.get_connection() escribe a Turso via libsql.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # Categorizacion AIDU (Claude API) en cada licitacion nueva
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Parametro del cron (fallback 2 dias si no hay input manual)
+          DIAS_ATRAS: ${{ inputs.dias_atras || '2' }}
+        run: python -m app.core.descarga_diaria
