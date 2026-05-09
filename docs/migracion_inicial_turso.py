@@ -256,6 +256,69 @@ def apply_migrations(http_url, headers) -> None:
 SKIP_TABLES = {"_migrations"}  # gestionado por apply_migrations
 
 
+def _build_dependency_graph(
+    http_url, headers, tables: list[str]
+) -> dict[str, list[str]]:
+    """
+    Para cada tabla en `tables`, consulta Turso (PRAGMA foreign_key_list) y
+    devuelve {tabla: [tablas_padre_en_scope]}. Solo cuenta como dependencia un
+    parent que también esté en `tables` (FKs hacia tablas fuera de scope no
+    afectan el orden — por ejemplo si la seed no las trae). Self-references se
+    descartan: una FK de la tabla a sí misma no condiciona el orden de carga
+    entre filas de tablas distintas.
+    """
+    table_set = set(tables)
+    graph: dict[str, list[str]] = {t: [] for t in tables}
+    for tbl in tables:
+        res = _execute(http_url, headers, [{"sql": f'PRAGMA foreign_key_list("{tbl}")'}])[0]
+        if res.get("type") != "ok":
+            continue
+        rows = res.get("response", {}).get("result", {}).get("rows", [])
+        parents: set[str] = set()
+        for row in rows:
+            # PRAGMA foreign_key_list cells: id, seq, table, from, to, on_update, on_delete, match
+            if len(row) < 3:
+                continue
+            parent_cell = row[2] or {}
+            parent = parent_cell.get("value")
+            if parent and parent != tbl and parent in table_set:
+                parents.add(parent)
+        graph[tbl] = sorted(parents)
+    return graph
+
+
+def _topological_sort(graph: dict[str, list[str]]) -> list[str]:
+    """
+    Orden topológico (Kahn) con tie-break alfabético para determinismo. La
+    entrada es {hijo: [padres]}; la salida es una lista en la que cada padre
+    aparece antes que sus hijos. Lanza ValueError si detecta un ciclo.
+    """
+    from bisect import insort
+    from collections import defaultdict
+
+    in_degree: dict[str, int] = {t: len(graph.get(t, [])) for t in graph}
+    children: dict[str, list[str]] = defaultdict(list)
+    for child, parents in graph.items():
+        for p in parents:
+            children[p].append(child)
+
+    ready = sorted([t for t, d in in_degree.items() if d == 0])
+    order: list[str] = []
+    while ready:
+        node = ready.pop(0)
+        order.append(node)
+        for ch in sorted(children[node]):
+            in_degree[ch] -= 1
+            if in_degree[ch] == 0:
+                insort(ready, ch)
+    if len(order) != len(graph):
+        unresolved = sorted(t for t in graph if t not in order)
+        raise ValueError(
+            f"Ciclo detectado en grafo de FKs. Tablas sin orden: {unresolved}"
+        )
+    return order
+
+
 def dump_seed(http_url, headers) -> None:
     if not SEED_DB.exists():
         print(f"⚠️  No hay {SEED_DB.name}; skipeando dump.")
@@ -264,15 +327,24 @@ def dump_seed(http_url, headers) -> None:
     conn = sqlite3.connect(SEED_DB)
     conn.row_factory = sqlite3.Row
     try:
-        tables = [r[0] for r in conn.execute(
+        seed_tables = [r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            "AND name NOT LIKE 'sqlite_%'"
         ).fetchall()]
+        seed_tables = [t for t in seed_tables if t not in SKIP_TABLES]
 
-        for tbl in tables:
-            if tbl in SKIP_TABLES:
-                print(f"  ⏭️  {tbl}: skip (gestión separada)")
-                continue
+        # Orden topológico según FKs reales en Turso. Un order alfabético
+        # rompe FK constraints (ej: mp_categorizacion_aidu antes que
+        # mp_licitaciones_adj). El topo-sort respeta padre→hijo.
+        graph = _build_dependency_graph(http_url, headers, seed_tables)
+        ordered_tables = _topological_sort(graph)
+        deps_summary = ", ".join(
+            f"{t}<-[{','.join(graph[t])}]" if graph[t] else t
+            for t in ordered_tables
+        )
+        print(f"  📐 Orden topológico ({len(ordered_tables)} tablas): {deps_summary}")
+
+        for tbl in ordered_tables:
             if not _table_exists(http_url, headers, tbl):
                 print(f"  ⏭️  {tbl}: no existe en Turso (no creada por migraciones), skip")
                 continue
@@ -382,9 +454,13 @@ def main() -> None:
     print(f"🌐 Endpoint Turso: {http_url}\n")
     apply_migrations(http_url, headers)
     print()
-    dump_seed(http_url, headers)
-    print()
+    # aidu_homologacion_categoria primero: 12 filas críticas que alimentan
+    # toda la inteligencia de precios. Si algo falla más adelante, al menos
+    # la operación con homologación queda lista. No tiene FKs entrantes ni
+    # salientes, así que el orden no compite con dump_seed.
     insert_homologacion(http_url, headers)
+    print()
+    dump_seed(http_url, headers)
     ok = verify(http_url, headers)
     if not ok:
         print("\n⚠️  Bootstrap completado con discrepancias. Revisar conteos arriba.")
