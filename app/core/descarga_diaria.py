@@ -26,19 +26,41 @@ logger = logging.getLogger(__name__)
 def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict:
     """
     Descarga licitaciones VIGENTES (publicadas) de los últimos N días.
-    
+
+    Cubre AMBOS endpoints de Mercado Público en una sola corrida:
+    - Endpoint principal: tipos L1/LE/LP/LR/LS/LQ/CO (oferta pública estándar).
+    - Endpoint AGIL: Compras Ágiles <100 UTM (`tipo='AGIL'`). Es el MVP
+      comercial de AIDU — requerimiento explícito de S12.2 que no estaba
+      cubierto antes (las llamadas a listar_agiles_recientes vivían solo en
+      descarga_historica.py para back-fills manuales).
+
+    El persistidor común (mp_licitaciones_vigentes) acepta los AGIL tal cual
+    porque listar_agiles_por_fecha ya normaliza al formato {CodigoExterno,
+    Nombre, ..., Tipo: 'AGIL', Comprador: {...}}.
+
     Returns:
-        Dict con stats: nuevas, actualizadas, fallidas, total_descargado
+        Dict con stats: nuevas, actualizadas, fallidas, total_descargado,
+        categorizadas_aidu, agiles_descargadas (subconjunto de total_descargado).
     """
     cliente = MercadoPublicoClient(ticket=ticket)
-    
-    licitaciones_raw = cliente.descargar_vigentes_recientes(dias_atras=dias_atras)
-    
+
+    licitaciones_principales = cliente.descargar_vigentes_recientes(dias_atras=dias_atras)
+    try:
+        agiles = cliente.listar_agiles_recientes(dias_atras=dias_atras)
+    except Exception as e:
+        # Endpoint AGIL caído no debe abortar el cron — el principal ya bajó.
+        logger.warning(f"⚠️  AGIL falló, continúo con principales: {e}")
+        agiles = []
+
+    licitaciones_raw = list(licitaciones_principales) + list(agiles)
+    n_agiles = len(agiles)
+
     if not licitaciones_raw:
-        logger.warning("Sin licitaciones nuevas descargadas")
+        logger.warning("Sin licitaciones nuevas descargadas (ni principales ni AGIL)")
         return {
             "nuevas": 0, "actualizadas": 0, "fallidas": 0,
             "total_descargado": 0, "categorizadas_aidu": 0,
+            "agiles_descargadas": 0,
         }
     
     nuevas = 0
@@ -151,8 +173,9 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
         "fallidas": fallidas,
         "total_descargado": len(licitaciones_raw),
         "categorizadas_aidu": categorizadas,
+        "agiles_descargadas": n_agiles,
     }
-    
+
     logger.info(f"✅ Descarga completada: {resultado}")
     return resultado
 
@@ -256,9 +279,30 @@ def stats_vigentes() -> Dict:
 
 
 if __name__ == "__main__":
+    # Modo CLI: invocado por el cron de GitHub Actions
+    # (ver .github/workflows/descarga_mp_diaria.yml). Exit codes alineados
+    # con criterio #7 de S12.2:
+    #   0 = éxito (incluye "0 licitaciones nuevas hoy" — no es error).
+    #   1 = error API Mercado Público (rate limit, downtime, ticket inválido).
+    #   2 = error en BD/Turso (auth, schema, sync).
+    import os as _os
+    import sys as _sys
+
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-    print("🚀 Iniciando descarga diaria MP...")
-    resultado = ejecutar_descarga(dias_atras=2)
-    print(f"\n📊 Resultado:")
+    dias = int(_os.environ.get("DIAS_ATRAS", "2"))
+    print(f"🚀 Iniciando descarga diaria MP (dias_atras={dias})...")
+
+    try:
+        resultado = ejecutar_descarga(dias_atras=dias)
+    except Exception as exc:
+        msg = str(exc).lower()
+        is_db_err = any(t in msg for t in ("turso", "sqlite", "operationalerror", "auth"))
+        if is_db_err:
+            logger.exception("❌ Falla persistencia (BD/Turso): exit 2")
+            _sys.exit(2)
+        logger.exception("❌ Falla API Mercado Público: exit 1")
+        _sys.exit(1)
+
+    print("\n📊 Resultado:")
     for k, v in resultado.items():
         print(f"  {k}: {v}")
