@@ -21,10 +21,12 @@ import sqlite3
 import shutil
 import logging
 import os
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Tuple
 from config.settings import DB_PATH, BACKUP_DIR
+from app.db.exceptions import TursoUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ MIGRATIONS_DIR.mkdir(exist_ok=True)
 
 
 # ============================================================
-# Capa de persistencia Turso (S12.1)
+# Capa de persistencia Turso (S12.1, endurecida en S12.2.1)
 # ============================================================
 # El contenedor de Streamlit Cloud borra /tmp en cada reboot, perdiendo la
 # BD madre. Para fijarlo sin romper los ~80 callsites de get_connection(),
@@ -43,8 +45,25 @@ MIGRATIONS_DIR.mkdir(exist_ok=True)
 #   - Después de cada commit local, pushea los cambios a Turso.
 # Las queries y la API siguen pasando por sqlite3.Connection nativo, así que
 # row_factory, sqlite3.Row, sqlite3.OperationalError y demás se comportan igual.
-# Cuando no hay credenciales Turso (modo dev / CI), todo cae al SQLite local
-# de siempre — comportamiento previo intacto.
+#
+# Modos legítimos (S12.2.1):
+#   1) Sin credenciales (TURSO_DATABASE_URL/TURSO_AUTH_TOKEN ausentes):
+#      modo dev/CI/tests. get_connection() devuelve sqlite3.Connection puro
+#      contra DB_PATH local. Comportamiento previo intacto.
+#   2) Con credenciales y handshake OK: get_connection() devuelve un proxy
+#      que pushea cada commit a Turso vía libsql sync.
+#   3) Con credenciales pero handshake falla los N reintentos: se levanta
+#      TursoUnavailableError. ANTES (pre-S12.2.1) caía silenciosamente al
+#      SQLite local — patrón fatal en runners efímeros (Run #3 perdió 446
+#      licitaciones de esa forma). Ahora se aborta para evitar pérdida.
+
+# Política de reintentos del handshake con Turso. Tres intentos con backoff
+# exponencial (1s, 4s, 16s = 21s total de espera) cubren las fallas
+# transitorias típicas de red sin agotar el timeout de 25 min del workflow.
+# Diseñado para tolerar el bug 'Invalid header bit 123 expected 0 or 1' del
+# Run #3 si resulta intermitente; si es determinístico, igual aborta limpio.
+_TURSO_HANDSHAKE_MAX_INTENTOS = 3
+_TURSO_HANDSHAKE_BACKOFF_BASE_S = 1.0  # 1, 4, 16 segundos
 
 _TURSO_CONN = None  # libsql.Connection persistente, solo para sync
 _TURSO_AVAILABLE: Optional[bool] = None  # cache del último intento de conexión
@@ -75,35 +94,76 @@ def _read_turso_credentials() -> Optional[Tuple[str, str]]:
 
 def _ensure_turso_replica() -> bool:
     """
-    Garantiza que la replica embebida con Turso esté lista. Idempotente:
+    Garantiza que la réplica embebida con Turso esté lista. Idempotente:
     la primera llamada abre la libsql.Connection y sincroniza desde Turso;
     llamadas posteriores reutilizan la conexión y solo re-sincronizan.
-    Si falla (libsql no instalado, credenciales inválidas, red caída), cae
-    a modo SQLite puro y cachea el fallo para no reintentar en cada query.
-    Devuelve True si Turso quedó activo, False si modo SQLite local.
+
+    Política S12.2.1 (eliminado el fallback silencioso a SQLite):
+      - Sin credenciales: devuelve False sin tocar la red. get_connection()
+        usará SQLite local (modo dev/CI/tests). Comportamiento previo intacto.
+      - Con credenciales y handshake exitoso: devuelve True (Turso activo).
+      - Con credenciales y handshake fallido: reintenta hasta
+        _TURSO_HANDSHAKE_MAX_INTENTOS con backoff exponencial. Si todos los
+        intentos fallan, levanta TursoUnavailableError. Eso fuerza al
+        callsite (CLI de descarga, app, etc.) a decidir explícitamente cómo
+        reaccionar — antes el log "Turso no disponible, opero contra
+        SQLite local" hacía que producción escribiera silenciosamente a un
+        SQLite efímero sin schema y los datos se perdían (Run #3, S12.2).
     """
     global _TURSO_CONN, _TURSO_AVAILABLE
     if _TURSO_AVAILABLE is False:
         return False
     creds = _read_turso_credentials()
     if creds is None:
+        # Sin credenciales: modo dev/CI/tests. NO es un error — es un modo
+        # operativo legítimo, así que no se levanta excepción.
         _TURSO_AVAILABLE = False
         return False
-    try:
-        if _TURSO_CONN is None:
-            import libsql_experimental as libsql  # noqa: WPS433
-            url, token = creds
-            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _TURSO_CONN = libsql.connect(
-                str(DB_PATH), sync_url=url, auth_token=token,
-            )
-        _TURSO_CONN.sync()
-        _TURSO_AVAILABLE = True
-        return True
-    except Exception as e:
-        logger.error(f"❌ Turso no disponible, opero contra SQLite local: {e}")
-        _TURSO_AVAILABLE = False
-        return False
+
+    url, token = creds
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    ultimo_error: Optional[Exception] = None
+    for intento in range(1, _TURSO_HANDSHAKE_MAX_INTENTOS + 1):
+        try:
+            if _TURSO_CONN is None:
+                import libsql_experimental as libsql  # noqa: WPS433
+                _TURSO_CONN = libsql.connect(
+                    str(DB_PATH), sync_url=url, auth_token=token,
+                )
+            _TURSO_CONN.sync()
+            _TURSO_AVAILABLE = True
+            return True
+        except Exception as e:  # noqa: BLE001 — re-emitido como TursoUnavailableError abajo
+            ultimo_error = e
+            # Reset de la conexión para que el próximo intento abra una nueva.
+            _TURSO_CONN = None
+            if intento < _TURSO_HANDSHAKE_MAX_INTENTOS:
+                espera = _TURSO_HANDSHAKE_BACKOFF_BASE_S * (4 ** (intento - 1))
+                logger.warning(
+                    f"⚠️  Handshake con Turso falló (intento {intento}"
+                    f"/{_TURSO_HANDSHAKE_MAX_INTENTOS}): {e}. "
+                    f"Reintento en {espera:.0f}s."
+                )
+                time.sleep(espera)
+
+    # Todos los reintentos fallaron. NO se cae a SQLite local: eso pierde
+    # datos en runners efímeros (Run #3 escribió 446 licitaciones a un
+    # SQLite sin schema y se perdieron). Levantar para que el CLI de
+    # descarga termine con exit 2 y el operador investigue.
+    _TURSO_AVAILABLE = False
+    msg = (
+        "Turso no disponible tras "
+        f"{_TURSO_HANDSHAKE_MAX_INTENTOS} reintentos. "
+        "Abortando para evitar fallback silencioso a SQLite local. "
+        f"Último error: {ultimo_error}"
+    )
+    logger.error(f"❌ {msg}")
+    raise TursoUnavailableError(
+        msg,
+        intentos=_TURSO_HANDSHAKE_MAX_INTENTOS,
+        ultimo_error=str(ultimo_error) if ultimo_error else "",
+    )
 
 
 def sync_to_turso() -> bool:
@@ -329,6 +389,10 @@ def get_connection():
       libsql-experimental antes de abrir, y devuelve un proxy que pushea a
       Turso después de cada commit. Esto fija la pérdida de datos en cold
       starts del contenedor Streamlit Cloud.
+    - Con credenciales pero handshake fallido tras N reintentos:
+      levanta TursoUnavailableError y NO devuelve conexión local. El
+      callsite de runtime debe propagarla para evitar el fallback
+      silencioso que costó las 446 licitaciones del Run #3 (S12.2.1).
 
     El tipo devuelto es sqlite3.Connection o un proxy con la misma API
     (__getattr__ delega al sqlite3.Connection subyacente).
