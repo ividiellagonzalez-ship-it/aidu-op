@@ -471,6 +471,30 @@ class TestEjecutarViaHTTP:
             f"hacía 1 query por licitación."
         )
 
+    def test_logging_dispatcher_con_creds(self, caplog, cliente_mp_fake, http_capture):
+        """
+        S12.2.2.1: el log de diagnóstico imprime turso_http=True y 'set' para
+        ambas env vars cuando están configuradas. Permite correlacionar en
+        producción si el dispatcher tomó la rama esperada.
+        """
+        cliente_mp_fake["vigentes"] = [
+            {"CodigoExterno": "DBG-001", "Nombre": "x", "Comprador": {}},
+        ]
+        with caplog.at_level("INFO", logger="app.core.descarga_diaria"):
+            dd.ejecutar_descarga(dias_atras=1)
+        # Buscar el log line del dispatcher entre todos los emitidos.
+        dispatcher_lines = [
+            r.message for r in caplog.records if "Path dispatcher" in r.message
+        ]
+        assert len(dispatcher_lines) == 1, (
+            f"Esperaba exactamente 1 log de dispatcher, encontré {len(dispatcher_lines)}: "
+            f"{dispatcher_lines}"
+        )
+        msg = dispatcher_lines[0]
+        assert "turso_http=True" in msg
+        assert "TURSO_DATABASE_URL=set" in msg
+        assert "TURSO_AUTH_TOKEN=set" in msg
+
     def test_match_aidu_inmemory_replica_logica_canonica(self):
         """
         El matcher in-memory debe dar los mismos resultados que el
@@ -505,3 +529,60 @@ class TestEjecutarViaHTTP:
         assert dd._match_aidu_inmemory(
             "ferretería barrial limpieza", matchers,
         ) == []
+
+
+# ============================================================
+# S12.2.2.1 — Logging diagnóstico del dispatcher (sin creds)
+# ============================================================
+class TestPathDispatcherLoggingSinCreds:
+    """
+    Contraparte del test `test_logging_dispatcher_con_creds` de
+    `TestEjecutarViaHTTP`. Verifica que sin env vars Turso, el log
+    diagnóstico imprime `turso_http=False` y `EMPTY` para ambas vars.
+
+    El fixture `_aislar_env_turso` autouse ya borra las env vars; este
+    test reusa esa garantía y mockea MP + get_connection para evitar
+    handshake real con libsql contra DB_PATH local.
+    """
+
+    def test_logging_dispatcher_sin_creds(self, monkeypatch, caplog):
+        # Cliente MP con 1 licitación para que el flow llegue hasta el dispatch.
+        class _ClienteFake:
+            def __init__(self, ticket=None):
+                pass
+
+            def descargar_vigentes_recientes(self, dias_atras):
+                return [{"CodigoExterno": "DBG-X1", "Nombre": "x", "Comprador": {}}]
+
+            def listar_agiles_recientes(self, dias_atras):
+                return []
+
+        # Conn fake mínima: SELECT siempre None, INSERT/UPDATE no-op.
+        class _ConnFake:
+            def execute(self, sql, params=()):
+                class _Cur:
+                    def fetchone(self_inner):
+                        return None
+                return _Cur()
+
+            def commit(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(dd, "_calcular_match_aidu", lambda *a, **k: [])
+        monkeypatch.setattr(dd, "MercadoPublicoClient", _ClienteFake)
+        monkeypatch.setattr(dd, "get_connection", lambda: _ConnFake())
+
+        with caplog.at_level("INFO", logger="app.core.descarga_diaria"):
+            dd.ejecutar_descarga(dias_atras=1)
+
+        dispatcher_lines = [
+            r.message for r in caplog.records if "Path dispatcher" in r.message
+        ]
+        assert len(dispatcher_lines) == 1
+        msg = dispatcher_lines[0]
+        assert "turso_http=False" in msg
+        assert "TURSO_DATABASE_URL=EMPTY" in msg
+        assert "TURSO_AUTH_TOKEN=EMPTY" in msg

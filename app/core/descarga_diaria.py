@@ -34,6 +34,7 @@ La selección automática vive en `ejecutar_descarga` (chequeo de
 """
 import logging
 import json
+import os
 import time
 from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -127,6 +128,21 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
             "total_descargado": 0, "categorizadas_aidu": 0,
             "agiles_descargadas": 0,
         }
+
+    # Diagnóstico S12.2.2.1: log el resultado del dispatcher para correlacionar
+    # con runs en producción cuando hay dudas sobre por qué se eligió un path.
+    # No revela valores de secrets — solo si la env var está seteada o no.
+    # Agregado tras Run #6 que aparentó tomar el path libsql con el código de
+    # S12.2.2 ya mergeado (commit 32a2691). Si el próximo run con este logging
+    # muestra `turso_http=False` y `EMPTY`, la causa es ausencia de secrets en
+    # GitHub Actions; si muestra `turso_http=True` pero igual entró a libsql,
+    # hay un bug de raíz distinto que investigar.
+    turso_active = turso_http_client.is_configured()
+    logger.info(
+        f"📍 Path dispatcher: turso_http={turso_active}; "
+        f"env TURSO_DATABASE_URL={'set' if os.environ.get('TURSO_DATABASE_URL') else 'EMPTY'}; "
+        f"env TURSO_AUTH_TOKEN={'set' if os.environ.get('TURSO_AUTH_TOKEN') else 'EMPTY'}"
+    )
 
     if turso_http_client.is_configured():
         resultado = _ejecutar_via_http(licitaciones_raw, n_agiles, dias_atras)
