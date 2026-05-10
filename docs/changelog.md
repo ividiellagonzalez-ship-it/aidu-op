@@ -3,6 +3,163 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S12.2.2 — Cron a Turso vía HTTP /v2/pipeline (2026-05)
+
+**Branch**: `feature/s12-2-2-libsql-handshake`. **Estado**: PR pendiente de merge.
+
+### Causa raíz
+
+El Run #4 (id 25615368541), tras mergear S12.2.1, falló determinísticamente
+con exit 2 — el comportamiento esperado del fix anterior. La causa raíz
+del handshake (`Invalid header bit 123 expected 0 or 1`) quedó sin
+resolverse. Investigación durante S12.2.2:
+
+1. **`libsql-experimental` está congelado**: `0.0.55` (jun-2025) es la
+   última versión publicada en PyPI. Sin parches posteriores.
+2. **El paquete fue renombrado a `libsql`** (`0.1.0` el 2025-06-10,
+   activo hasta `0.1.11` el 2025-09-02), pero el bug **no es de versión**
+   sino arquitectónico: el modo "Embedded Replica" del cliente libsql
+   no funciona contra Turso hosteado en AWS. Evidencia:
+   - `tursodatabase/libsql-laravel#2` (closed ene-2025), comment de
+     `notrab` (Turso oficial): *"This issue is present to anyone using
+     a database on AWS. We'll bring Embedded Replicas to AWS very soon."*
+     El reporter confirmó que el mismo código funciona en Fly.io.
+   - `tursodatabase/libsql-js#157` (open jul-2025) confirma el bug
+     persiste con bit 117.
+   - `tursodatabase/go-libsql#52` con bit 115.
+   - AIDU está en `aws-us-east-2` → afectado.
+
+El nombre genérico del error ("Invalid header bit N") refleja que el
+cliente Rust intenta parsear como protobuf de Hrana lo que el servidor
+AWS le devuelve como `application/json` (`content-length: 74` constante
+en los logs = un payload JSON de error, no de protocolo).
+
+### Decisión
+
+Plan A (upgrade libsql) **descartado por evidencia documental**: ninguna
+versión arregla el bug porque está del lado server. **Plan B**: el cron
+escribe vía HTTP `/v2/pipeline` directo, transporte estable y oficial,
+ya validado en producción por `docs/migracion_inicial_turso.py` desde
+S12.1.5. La app Streamlit puede seguir usando `libsql_experimental` para
+reads (no afectados por Embedded Replica — `migrator.get_connection()`
+intacto).
+
+### Cambios por archivo
+
+- `app/db/turso_http_client.py` **nuevo** (~190 líneas).
+  - `is_configured() -> bool`: True si hay credenciales en env vars o
+    `st.secrets`.
+  - `execute_pipeline(statements, *, timeout=60.0) -> list[dict]`:
+    envía pipeline POST a `/v2/pipeline`, mapea HTTP 4xx/5xx, timeout
+    y conexión a `TursoUnavailableError` (mismo tipo que S12.2.1).
+    Reintentos con backoff exponencial (1s, 4s, 16s = 21s, igual
+    política que `migrator._ensure_turso_replica`).
+  - `query_one(sql, args)` / `query_all(sql, args)`: helpers que
+    extraen valores del wrapper Hrana `{type, value}`.
+- `app/core/descarga_diaria.py`:
+  - `ejecutar_descarga` ahora bifurca según `is_configured()`:
+    - **Modo Turso (productivo)**: `_ejecutar_via_http`.
+    - **Modo SQLite (dev/CI/tests)**: `_ejecutar_via_sqlite` (path
+      original preservado).
+  - `_ejecutar_via_http`:
+    - Pre-carga `aidu_servicios_keywords` con 1 SELECT (antes el
+      flujo SQLite hacía 1 query por licitación → 446 queries en el
+      Run #3 hipotético).
+    - Pre-calcula existentes con 1 SELECT batch (`WHERE codigo_externo
+      IN (...)`, chunks de 500).
+    - Loop en memoria: separa nuevas vs actualizadas, calcula
+      categorización AIDU sin tocar BD usando `_match_aidu_inmemory`
+      (replica del algoritmo de `app.core.ingesta._calcular_match_aidu`).
+    - Batches de 50 statements por pipeline:
+      `_batch_insert_vigentes`, `_batch_update_vigentes`,
+      `_batch_insert_categorizaciones`.
+    - **Escribe `mp_ingesta_log`** al cierre (criterio #3 del plan).
+      ANTES el cron diario nunca escribía esta tabla — deuda heredada
+      pre-S12.2 que el dashboard de monitoreo y `app.core.backfill`
+      necesitaban resuelta.
+  - `_match_aidu_inmemory`: nuevo helper, idéntico algoritmo a
+    `_calcular_match_aidu` pero sin parámetro `conn`. Recibe matchers
+    pre-cargados.
+  - `_mapear_licitacion`: extraída como helper (antes estaba inline en
+    el loop) para que ambos paths la compartan sin duplicar.
+- `tests/test_turso_http_client.py` **nuevo** (~245 líneas, 17 tests).
+  - `is_configured` con/sin env vars, con strings vacíos.
+  - Endpoint: `libsql://… → https://…/v2/pipeline`, payload incluye
+    `{type: close}` implícito.
+  - Errores HTTP 500/timeout/ConnectionError → `TursoUnavailableError`
+    tras 3 intentos.
+  - Backoff exponencial verificado (1.0s, 4.0s, sin sleep al 3°).
+  - Recovery en segundo intento (1°: 503, 2°: 200 OK).
+  - Helpers `query_one`/`query_all` extraen valores Hrana correctamente,
+    propagan errores SQL.
+- `tests/test_descarga_diaria_cli.py`:
+  - Fixture `_aislar_env_turso` autouse: borra env vars Turso para
+    los tests del path SQLite (los previos siguen funcionando con
+    `get_connection`).
+  - Nueva clase `TestEjecutarViaHTTP` con 7 tests:
+    - Path HTTP se selecciona cuando hay credenciales.
+    - Códigos existentes van a UPDATE; nuevos van a INSERT.
+    - 120 licitaciones → batches `[50, 50, 20]`.
+    - `mp_ingesta_log` se escribe (1 fila por corrida).
+    - `TursoUnavailableError` durante pipeline propaga sin tragarse.
+    - End-to-end vía `_main()`: pipeline falla → exit 2.
+    - 1 sola query a `aidu_servicios_keywords` (anti-regresión del
+      anti-pattern `1 query por licitación`).
+    - Algoritmo in-memory replica casos del canónico (hits, excluyentes,
+      texto vacío, sin match).
+
+### Hallazgos de pasada
+
+- **`mp_ingesta_log` no se escribía desde el cron diario** desde antes
+  de S12.2. `app/core/ingesta.py` (flujo manual) sí lo hacía. Esto era
+  un cuarto bug latente que el plan flagueaba indirectamente como
+  criterio de éxito #3 — lo cubrí en este sprint porque era trivial
+  (5 líneas) y reportarlo sin arreglar habría hecho fallar la
+  verificación post-merge. Sin expansión de scope.
+- **El path SQLite quedó preservado intacto** para que dev local sin
+  Turso siga funcionando. Esto evita necesidad de un flag `--local` y
+  preserva los tests previos de S12.2.1 sin cambios funcionales (solo
+  fixture de aislamiento de env).
+- **`requirements.txt` sin cambios**. `libsql-experimental==0.0.55`
+  queda como está: la app Streamlit lo sigue usando para reads
+  (`get_connection`) que no pasan por Embedded Replica. Eliminar la
+  dependencia es deuda futura — en cuanto migre `streamlit_app.py` a
+  `turso_http_client` el paquete puede salir del manifest.
+- **Optimización del flujo**: el path HTTP procesa N licitaciones con
+  ~`N/50 + 3` peticiones HTTP (1 SELECT existencia + 1 SELECT keywords
+  + N/50 INSERT vigentes + N/50 INSERT categorizaciones + 1 INSERT
+  log). Para N=446 son ~21 peticiones, vs el patrón previo (que igual
+  habría sido ~446 commits + 446 syncs). El runner tarda menos.
+
+### Pasos manuales post-merge del Director
+
+1. Pull en GitHub Desktop del último commit.
+2. Squash and merge `feature/s12-2-2-libsql-handshake` a main.
+3. Trigger manual del workflow:
+   `Actions → Descarga diaria Mercado Publico a Turso → Run workflow`
+   con branch `main` y `dias_atras=2`.
+4. Esperar 1-3 minutos.
+5. Si el run termina **verde**:
+   - Inspeccionar logs: NO debe aparecer `Invalid header bit 123` ni
+     mensajes de retry. Sí debe aparecer
+     `✅ Descarga completada: {nuevas: ..., actualizadas: ...}`.
+   - Turso dashboard: `Rows Written` sube significativamente (>>50
+     vs baseline 564).
+   - SQL en Turso:
+     `SELECT COUNT(*) FROM mp_licitaciones_vigentes WHERE date(fecha_descarga) = date('now');`
+     debe ser > 0.
+   - SQL en Turso:
+     `SELECT * FROM mp_ingesta_log ORDER BY id DESC LIMIT 1;`
+     debe tener fila nueva con `n_nuevas > 0`, `estado='OK'`,
+     `fecha_ejecucion` de hoy.
+   - Reboot Streamlit; tab "🔥 Hoy" muestra licitaciones nuevas.
+6. Si el run termina **rojo con exit 2**:
+   - El mensaje será `Turso no disponible vía HTTP /v2/pipeline tras
+     3 reintentos`. Inspeccionar `Último error:` para diagnosticar:
+     - `HTTP 401/403`: token rechazado, regenerar `TURSO_AUTH_TOKEN`.
+     - `HTTP 5xx`: Turso server-side, esperar y reintentar.
+     - `Timeout`/`ConnectionError`: red del runner, problema esporádico.
+
 ## S12.2.1 — Fix crítico: eliminar fallback silencioso a SQLite (2026-05)
 
 **Branch**: `feature/s12-2-1-fix-fallback-turso`. **Estado**: PR pendiente de merge.

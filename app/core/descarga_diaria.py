@@ -10,18 +10,58 @@ Uso:
     # O programáticamente:
     from app.core.descarga_diaria import ejecutar_descarga
     resultado = ejecutar_descarga(dias_atras=2)
+
+Persistencia (S12.2.2)
+----------------------
+El job tiene dos paths según haya credenciales Turso configuradas:
+
+  1. **Modo Turso (producción)**: escribe vía
+     `app.db.turso_http_client.execute_pipeline` directamente al
+     endpoint HTTP `/v2/pipeline` de Turso. Bypass del cliente libsql
+     "embedded replica" cuyo handshake falla determinísticamente
+     contra Turso hosteado en AWS (`Invalid header bit 123`,
+     bug arquitectónico documentado en `tursodatabase/libsql-laravel#2`).
+     Inserciones en batches de hasta 50 por pipeline para amortizar
+     RTT HTTP, escribe `mp_ingesta_log` con stats al final.
+
+  2. **Modo SQLite (dev / CI / tests)**: cuando NO hay credenciales
+     Turso, usa `app.db.migrator.get_connection()` con SQLite local.
+     Path original pre-S12.2.2, mantenido para no romper desarrollo
+     local ni el suite de tests que monkeypatchea `get_connection`.
+
+La selección automática vive en `ejecutar_descarga` (chequeo de
+`turso_http_client.is_configured()`).
 """
 import logging
 import json
+import time
 from datetime import date, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.api.mercadopublico import MercadoPublicoClient
 from app.db.migrator import get_connection
 from app.db.exceptions import TursoUnavailableError
+from app.db import turso_http_client
+from app.db._hrana_types import arg_for_value
 from app.core.ingesta import _calcular_match_aidu
 
 logger = logging.getLogger(__name__)
+
+# Tamaño de batch para los pipelines HTTP a Turso. 50 statements por
+# request es el mismo número validado en producción por
+# `docs/migracion_inicial_turso.py` durante S12.1.5. Suficientemente
+# grande para amortizar el RTT HTTP, suficientemente chico para no
+# acercarse al límite de payload (~1 MB) que enforce Turso.
+_TURSO_BATCH_SIZE = 50
+
+# Columnas en orden para INSERT en mp_licitaciones_vigentes. Se mantiene
+# como constante de módulo para que tests y helpers puedan compartir el
+# layout sin parser SQL.
+_VIGENTES_COLS = (
+    "codigo_externo", "nombre", "descripcion", "organismo", "organismo_codigo",
+    "region", "comuna", "tipo", "fecha_publicacion", "fecha_cierre",
+    "monto_referencial", "moneda", "estado", "url_mp_canonica", "raw_json",
+)
 
 
 class MercadoPublicoAPIError(Exception):
@@ -47,6 +87,12 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
     El persistidor común (mp_licitaciones_vigentes) acepta los AGIL tal cual
     porque listar_agiles_por_fecha ya normaliza al formato {CodigoExterno,
     Nombre, ..., Tipo: 'AGIL', Comprador: {...}}.
+
+    S12.2.2: la persistencia tiene dos paths. Si hay credenciales Turso,
+    el job escribe vía HTTP `/v2/pipeline` (`turso_http_client`),
+    bypaseando el cliente libsql para evitar el bug
+    `Invalid header bit 123` en AWS-hosted Turso. Sin credenciales,
+    cae al path SQLite local (modo dev/CI/tests).
 
     Returns:
         Dict con stats: nuevas, actualizadas, fallidas, total_descargado,
@@ -81,118 +127,113 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
             "total_descargado": 0, "categorizadas_aidu": 0,
             "agiles_descargadas": 0,
         }
-    
-    nuevas = 0
-    actualizadas = 0
+
+    if turso_http_client.is_configured():
+        resultado = _ejecutar_via_http(licitaciones_raw, n_agiles, dias_atras)
+    else:
+        resultado = _ejecutar_via_sqlite(licitaciones_raw, n_agiles)
+
+    logger.info(f"✅ Descarga completada: {resultado}")
+    return resultado
+
+
+# ============================================================
+# Path 1: Turso HTTP /v2/pipeline (S12.2.2, productivo)
+# ============================================================
+
+def _ejecutar_via_http(
+    licitaciones_raw: List[Dict],
+    n_agiles: int,
+    dias_atras: int,
+) -> Dict:
+    """
+    Persiste licitaciones a Turso vía HTTP `/v2/pipeline`. Estrategia:
+
+      1. Pre-cargar matchers AIDU (1 query para `aidu_servicios_keywords`).
+      2. Pre-cargar set de códigos ya existentes (1 query con WHERE IN
+         para todos los códigos a la vez — antes hacía N queries).
+      3. Loop en memoria: separar inserts vs updates, calcular
+         categorización AIDU usando los matchers pre-cargados (sin
+         tocar la BD por licitación).
+      4. Batch INSERT mp_licitaciones_vigentes (50 por pipeline).
+      5. Batch UPDATE mp_licitaciones_vigentes (50 por pipeline).
+      6. Batch INSERT OR REPLACE mp_categorizacion_aidu (50 por pipeline).
+      7. INSERT en mp_ingesta_log con duración y conteos.
+
+    Las fallas de transporte (HTTP 4xx/5xx, timeout) se mapean a
+    `TursoUnavailableError` por `turso_http_client.execute_pipeline`,
+    que el `_main` del CLI captura para exit 2.
+    """
+    inicio = time.time()
+
+    matchers = _cargar_matchers_aidu()  # lista de tuplas (cod_servicio, kw, kw_excl)
+    codigos_input = _extraer_codigos_unicos(licitaciones_raw)
+    existentes = _bulk_check_existencia(codigos_input)
+
+    # Acumuladores para los batches.
+    inserts: List[Tuple] = []          # filas a insertar en mp_licitaciones_vigentes
+    updates: List[Tuple] = []          # tuplas para UPDATE
+    cat_inserts: List[Tuple[str, str, float]] = []  # (codigo, cod_aidu, confianza)
     fallidas = 0
-    categorizadas = 0
-    
-    conn = get_connection()
-    try:
-        for lic in licitaciones_raw:
-            try:
-                codigo = lic.get("CodigoExterno") or lic.get("codigo_externo")
-                if not codigo:
-                    fallidas += 1
-                    continue
-                
-                # Verificar si existe
-                existe = conn.execute(
-                    "SELECT codigo_externo FROM mp_licitaciones_vigentes WHERE codigo_externo = ?",
-                    (codigo,)
-                ).fetchone()
-                
-                # Mapear campos del API a la BD
-                # Campo URL canónica: la API retorna en consultas detalladas;
-                # en consultas por fecha NO viene siempre. Cuando viene, la guardamos.
-                url_canonica_api = (
-                    lic.get("UrlAcceso") or 
-                    lic.get("urlAcceso") or 
-                    lic.get("url_acceso") or
-                    None
-                )
-                
-                datos = {
-                    "codigo_externo": codigo,
-                    "nombre": lic.get("Nombre") or lic.get("nombre", ""),
-                    "descripcion": lic.get("Descripcion") or lic.get("descripcion", ""),
-                    "organismo": (lic.get("Comprador", {}) if isinstance(lic.get("Comprador"), dict) else {}).get("NombreOrganismo") or lic.get("organismo", ""),
-                    "organismo_codigo": (lic.get("Comprador", {}) if isinstance(lic.get("Comprador"), dict) else {}).get("CodigoOrganismo", ""),
-                    "region": lic.get("Region") or (lic.get("Comprador", {}) if isinstance(lic.get("Comprador"), dict) else {}).get("RegionUnidad") or "",
-                    "comuna": lic.get("Comuna") or (lic.get("Comprador", {}) if isinstance(lic.get("Comprador"), dict) else {}).get("ComunaUnidad") or "",
-                    "tipo": lic.get("Tipo", ""),
-                    "fecha_publicacion": _parse_fecha(lic.get("FechaPublicacion") or lic.get("fecha_publicacion")),
-                    "fecha_cierre": _parse_fecha(lic.get("FechaCierre") or lic.get("fecha_cierre")),
-                    "monto_referencial": lic.get("MontoEstimado") or lic.get("monto_referencial") or 0,
-                    "moneda": lic.get("Moneda", "CLP"),
-                    "estado": "publicada",
-                    "url_mp_canonica": url_canonica_api,
-                    "raw_json": json.dumps(lic, ensure_ascii=False),
-                }
-                
-                if existe:
-                    # Actualizar (incluye url_mp_canonica si la API la provee)
-                    conn.execute("""
-                        UPDATE mp_licitaciones_vigentes
-                        SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?, 
-                            url_mp_canonica=COALESCE(?, url_mp_canonica), raw_json=?
-                        WHERE codigo_externo=?
-                    """, (
-                        datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
-                        datos["monto_referencial"], datos["url_mp_canonica"], 
-                        datos["raw_json"], codigo
-                    ))
-                    actualizadas += 1
-                else:
-                    # Insertar nueva
-                    conn.execute("""
-                        INSERT INTO mp_licitaciones_vigentes (
-                            codigo_externo, nombre, descripcion, organismo, organismo_codigo,
-                            region, comuna, tipo, fecha_publicacion, fecha_cierre,
-                            monto_referencial, moneda, estado, url_mp_canonica, raw_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        datos["codigo_externo"], datos["nombre"], datos["descripcion"],
-                        datos["organismo"], datos["organismo_codigo"],
-                        datos["region"], datos["comuna"], datos["tipo"],
-                        datos["fecha_publicacion"], datos["fecha_cierre"],
-                        datos["monto_referencial"], datos["moneda"], datos["estado"],
-                        datos["url_mp_canonica"], datos["raw_json"]
-                    ))
-                    nuevas += 1
-                    
-                    # Categorizar AIDU automáticamente
-                    try:
-                        matches = _calcular_match_aidu(
-                            {"nombre": datos["nombre"], "descripcion": datos["descripcion"]},
-                            conn
-                        )
-                        for cod_aidu, confianza in matches[:1]:  # Top 1
-                            conn.execute("""
-                                INSERT OR REPLACE INTO mp_categorizacion_aidu
-                                (codigo_externo, cod_servicio_aidu, confianza)
-                                VALUES (?, ?, ?)
-                            """, (codigo, cod_aidu, confianza))
-                            categorizadas += 1
-                    except Exception as e:
-                        logger.warning(f"Categorización fallida {codigo}: {e}")
-                
-                conn.commit()
-                
-            except TursoUnavailableError:
-                # Falla de persistencia de runtime: NO degradar a "error de
-                # licitación individual" — debe abortar el job entero. Sin
-                # este re-raise, el bug original del Run #3 se reproduce
-                # (446 inserts fallidos contra SQLite efímero, exit 0).
-                raise
-            except Exception as e:
-                logger.error(f"Error procesando licitación: {e}")
+
+    for lic in licitaciones_raw:
+        try:
+            codigo = lic.get("CodigoExterno") or lic.get("codigo_externo")
+            if not codigo:
                 fallidas += 1
-        
-    finally:
-        conn.close()
-    
-    resultado = {
+                continue
+
+            datos = _mapear_licitacion(lic, codigo)
+            if codigo in existentes:
+                updates.append((
+                    datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
+                    datos["monto_referencial"], datos["url_mp_canonica"],
+                    datos["raw_json"], codigo,
+                ))
+            else:
+                inserts.append(tuple(datos[c] for c in _VIGENTES_COLS))
+                # Categorización in-memory: las 12 categorías AIDU son
+                # estáticas, los matchers se cargaron una sola vez antes
+                # del loop. Top 1 (igual que el flujo SQLite original).
+                texto = f"{datos['nombre']} {datos['descripcion']}".strip()
+                top = _match_aidu_inmemory(texto, matchers, top_n=1)
+                for cod_aidu, conf in top:
+                    cat_inserts.append((codigo, cod_aidu, conf))
+        except Exception as e:
+            # Falla por licitación individual: no aborta el batch entero.
+            # Las TursoUnavailableError no llegan acá porque las queries
+            # van fuera del loop, pero por defensividad re-raise.
+            if isinstance(e, TursoUnavailableError):
+                raise
+            logger.error(f"Error procesando licitación: {e}")
+            fallidas += 1
+
+    # Disparo de los batches contra Turso. Cualquier falla de transporte
+    # levanta TursoUnavailableError → exit 2 en el CLI.
+    _batch_insert_vigentes(inserts)
+    _batch_update_vigentes(updates)
+    _batch_insert_categorizaciones(cat_inserts)
+
+    duracion = round(time.time() - inicio, 2)
+    nuevas = len(inserts)
+    actualizadas = len(updates)
+    categorizadas = len(cat_inserts)
+
+    # mp_ingesta_log: criterio de éxito #3 del plan S12.2.2. ANTES el cron
+    # diario nunca escribía esta tabla (deuda heredada — solo
+    # `app.core.ingesta.ingestar_lote` lo hacía y vive en el flujo
+    # manual). Acá lo agregamos en el path HTTP para que el dashboard
+    # de monitoreo y `app.core.backfill` puedan saber que el cron corrió.
+    _insert_ingesta_log(
+        n_descargadas=len(licitaciones_raw),
+        n_nuevas=nuevas,
+        n_actualizadas=actualizadas,
+        duracion_s=duracion,
+        n_fallidas=fallidas,
+        dias_atras=dias_atras,
+    )
+
+    return {
         "nuevas": nuevas,
         "actualizadas": actualizadas,
         "fallidas": fallidas,
@@ -201,8 +242,358 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
         "agiles_descargadas": n_agiles,
     }
 
-    logger.info(f"✅ Descarga completada: {resultado}")
-    return resultado
+
+def _cargar_matchers_aidu() -> List[Tuple[str, List[str], List[str]]]:
+    """
+    Una query única a `aidu_servicios_keywords` que devuelve la lista
+    `[(cod_servicio, [keywords], [excluyentes])]`. Se llama UNA VEZ
+    al inicio del path HTTP en lugar de por licitación, evitando 446
+    SELECTs en el caso del Run #3.
+
+    Si la tabla está vacía o falla, devuelve []: la categorización
+    quedará en cero (no aborta la descarga).
+    """
+    try:
+        rows = turso_http_client.query_all(
+            "SELECT cod_servicio, keywords, keywords_excluyentes "
+            "FROM aidu_servicios_keywords"
+        )
+    except TursoUnavailableError:
+        # Si query_all explota como TursoUnavailableError, propagamos:
+        # un SELECT que falla es señal de que Turso no está usable
+        # para escrituras tampoco.
+        raise
+    matchers: List[Tuple[str, List[str], List[str]]] = []
+    for row in rows:
+        cod, kw_str, excl_str = row[0], row[1] or "", row[2] or ""
+        kws = [k.strip().lower() for k in kw_str.split(",") if k.strip()]
+        excls = [k.strip().lower() for k in excl_str.split(",") if k.strip()]
+        matchers.append((cod, kws, excls))
+    return matchers
+
+
+def _extraer_codigos_unicos(licitaciones_raw: Iterable[Dict]) -> List[str]:
+    """Set de códigos externos no vacíos para chequear existencia en batch."""
+    codigos: set = set()
+    for lic in licitaciones_raw:
+        c = lic.get("CodigoExterno") or lic.get("codigo_externo")
+        if c:
+            codigos.add(c)
+    return sorted(codigos)
+
+
+def _bulk_check_existencia(codigos: List[str]) -> set:
+    """
+    Devuelve el subset de `codigos` que ya están en `mp_licitaciones_vigentes`.
+    Usa una sola query con WHERE IN (...). Si la lista es muy larga (>500),
+    parte en chunks porque algunos backends limitan la cantidad de
+    parámetros por query — Turso/SQLite acepta ~32k parámetros, pero el
+    ETL típico del cron son ~500-1000 licitaciones, así que un solo query
+    con chunk de 500 cubre cómodamente.
+    """
+    if not codigos:
+        return set()
+
+    existentes: set = set()
+    CHUNK = 500
+    for i in range(0, len(codigos), CHUNK):
+        chunk = codigos[i:i + CHUNK]
+        placeholders = ",".join("?" * len(chunk))
+        sql = (
+            "SELECT codigo_externo FROM mp_licitaciones_vigentes "
+            f"WHERE codigo_externo IN ({placeholders})"
+        )
+        args = [arg_for_value(c) for c in chunk]
+        rows = turso_http_client.query_all(sql, args=args)
+        for row in rows:
+            if row and row[0] is not None:
+                existentes.add(row[0])
+    return existentes
+
+
+def _batch_insert_vigentes(inserts: List[Tuple]) -> None:
+    """
+    Batch INSERT a mp_licitaciones_vigentes en pipelines de hasta 50.
+    Cada licitación es un statement Hrana independiente dentro del
+    pipeline (Turso ejecuta todos en orden; si uno falla, los previos
+    igual quedan committeados — esto es OK, las licitaciones son
+    independientes y un INSERT puede fallar por race con otro proceso
+    sin invalidar los demás).
+    """
+    if not inserts:
+        return
+    col_list = ",".join(_VIGENTES_COLS)
+    placeholders = ",".join("?" * len(_VIGENTES_COLS))
+    sql = (
+        f"INSERT INTO mp_licitaciones_vigentes ({col_list}) "
+        f"VALUES ({placeholders})"
+    )
+    for chunk in _chunked(inserts, _TURSO_BATCH_SIZE):
+        statements = [
+            {"sql": sql, "args": [arg_for_value(v) for v in row]}
+            for row in chunk
+        ]
+        results = turso_http_client.execute_pipeline(statements)
+        _log_errores_payload(results, contexto="INSERT mp_licitaciones_vigentes")
+
+
+def _batch_update_vigentes(updates: List[Tuple]) -> None:
+    """
+    Batch UPDATE a mp_licitaciones_vigentes. Cada update toca solo los
+    campos que pueden cambiar entre snapshots: nombre, descripcion,
+    fecha_cierre, monto_referencial, url_mp_canonica (con COALESCE para
+    no pisar con NULL si la API no la trae), raw_json.
+    """
+    if not updates:
+        return
+    sql = (
+        "UPDATE mp_licitaciones_vigentes "
+        "SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?, "
+        "    url_mp_canonica=COALESCE(?, url_mp_canonica), raw_json=? "
+        "WHERE codigo_externo=?"
+    )
+    for chunk in _chunked(updates, _TURSO_BATCH_SIZE):
+        statements = [
+            {"sql": sql, "args": [arg_for_value(v) for v in row]}
+            for row in chunk
+        ]
+        results = turso_http_client.execute_pipeline(statements)
+        _log_errores_payload(results, contexto="UPDATE mp_licitaciones_vigentes")
+
+
+def _batch_insert_categorizaciones(cat_inserts: List[Tuple[str, str, float]]) -> None:
+    """
+    Batch INSERT OR REPLACE en mp_categorizacion_aidu. INSERT OR REPLACE
+    es lo que usa el flujo SQLite original — preserva idempotencia si
+    una licitación se re-procesa en una corrida posterior.
+    """
+    if not cat_inserts:
+        return
+    sql = (
+        "INSERT OR REPLACE INTO mp_categorizacion_aidu "
+        "(codigo_externo, cod_servicio_aidu, confianza) VALUES (?, ?, ?)"
+    )
+    for chunk in _chunked(cat_inserts, _TURSO_BATCH_SIZE):
+        statements = [
+            {"sql": sql, "args": [arg_for_value(v) for v in row]}
+            for row in chunk
+        ]
+        results = turso_http_client.execute_pipeline(statements)
+        _log_errores_payload(results, contexto="INSERT mp_categorizacion_aidu")
+
+
+def _insert_ingesta_log(
+    *, n_descargadas: int, n_nuevas: int, n_actualizadas: int,
+    duracion_s: float, n_fallidas: int, dias_atras: int,
+) -> None:
+    """
+    Escribe entrada en `mp_ingesta_log`. Schema (mig 001):
+
+        id, fecha_consultada, n_licitaciones_descargadas, n_nuevas,
+        n_actualizadas, duracion_segundos, estado, error_msg,
+        fecha_ejecucion (default datetime('now', 'localtime')).
+
+    `fecha_consultada` es la fecha más vieja del rango: hoy - dias_atras.
+    `estado` es 'OK' si fallidas == 0, 'PARCIAL' si > 0.
+    """
+    fecha_consultada = (date.today() - timedelta(days=dias_atras)).isoformat()
+    estado = "OK" if n_fallidas == 0 else "PARCIAL"
+    error_msg = None if n_fallidas == 0 else f"{n_fallidas} licitaciones fallidas"
+    sql = (
+        "INSERT INTO mp_ingesta_log "
+        "(fecha_consultada, n_licitaciones_descargadas, n_nuevas, "
+        " n_actualizadas, duracion_segundos, estado, error_msg) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    args = [arg_for_value(v) for v in (
+        fecha_consultada, n_descargadas, n_nuevas, n_actualizadas,
+        duracion_s, estado, error_msg,
+    )]
+    turso_http_client.execute_pipeline([{"sql": sql, "args": args}])
+
+
+def _match_aidu_inmemory(
+    texto: str,
+    matchers: List[Tuple[str, List[str], List[str]]],
+    *,
+    top_n: int = 1,
+) -> List[Tuple[str, float]]:
+    """
+    Replica de la lógica de `app.core.ingesta._calcular_match_aidu` SIN
+    tocar la BD. Recibe los matchers pre-cargados y devuelve los top N
+    matches.
+
+    Idéntico algoritmo: keywords excluyentes → score 0 (skip);
+    score = min(1.0, hits / max(3, len(kws) * 0.4)); umbral 0.3.
+    """
+    texto_lower = texto.lower()
+    if not texto_lower.strip():
+        return []
+    matches: List[Tuple[str, float]] = []
+    for cod, kws, excls in matchers:
+        if any(ex in texto_lower for ex in excls):
+            continue
+        hits = sum(1 for kw in kws if kw in texto_lower)
+        if hits == 0:
+            continue
+        score = min(1.0, hits / max(3, len(kws) * 0.4))
+        if score >= 0.3:
+            matches.append((cod, round(score, 3)))
+    matches.sort(key=lambda x: x[1], reverse=True)
+    return matches[:top_n]
+
+
+def _chunked(seq, size: int):
+    """Yield chunks consecutivos de longitud ≤ size."""
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+def _log_errores_payload(results: List[dict], *, contexto: str) -> None:
+    """
+    Inspecciona los results de un pipeline y loggea cada `type=error`
+    al nivel WARNING. NO levanta — los errores SQL en INSERT/UPDATE
+    pueden ser legítimos (`UNIQUE constraint failed` en una race con
+    otro proceso, por ejemplo) y no deben abortar el batch entero.
+
+    Las TursoUnavailableError de transporte ya las tira
+    `execute_pipeline`; acá solo llegamos si la respuesta HTTP fue OK.
+    """
+    for i, res in enumerate(results):
+        if res.get("type") == "error":
+            err = res.get("error", {}).get("message", "?")
+            logger.warning(f"⚠️  {contexto}: result[{i}]: {err}")
+
+
+def _mapear_licitacion(lic: Dict, codigo: str) -> Dict:
+    """
+    Normaliza una licitación cruda del API MP al shape de
+    `mp_licitaciones_vigentes`. Misma lógica que el flujo SQLite
+    original; extraída acá para que ambos paths (HTTP y SQLite) la
+    compartan sin duplicar.
+    """
+    comprador = lic.get("Comprador") if isinstance(lic.get("Comprador"), dict) else {}
+    url_canonica_api = (
+        lic.get("UrlAcceso")
+        or lic.get("urlAcceso")
+        or lic.get("url_acceso")
+        or None
+    )
+    return {
+        "codigo_externo": codigo,
+        "nombre": lic.get("Nombre") or lic.get("nombre", ""),
+        "descripcion": lic.get("Descripcion") or lic.get("descripcion", ""),
+        "organismo": comprador.get("NombreOrganismo") or lic.get("organismo", ""),
+        "organismo_codigo": comprador.get("CodigoOrganismo", ""),
+        "region": lic.get("Region") or comprador.get("RegionUnidad") or "",
+        "comuna": lic.get("Comuna") or comprador.get("ComunaUnidad") or "",
+        "tipo": lic.get("Tipo", ""),
+        "fecha_publicacion": _parse_fecha(
+            lic.get("FechaPublicacion") or lic.get("fecha_publicacion")
+        ),
+        "fecha_cierre": _parse_fecha(
+            lic.get("FechaCierre") or lic.get("fecha_cierre")
+        ),
+        "monto_referencial": lic.get("MontoEstimado") or lic.get("monto_referencial") or 0,
+        "moneda": lic.get("Moneda", "CLP"),
+        "estado": "publicada",
+        "url_mp_canonica": url_canonica_api,
+        "raw_json": json.dumps(lic, ensure_ascii=False),
+    }
+
+
+# ============================================================
+# Path 2: SQLite local (dev / CI / tests, sin Turso)
+# ============================================================
+
+def _ejecutar_via_sqlite(licitaciones_raw: List[Dict], n_agiles: int) -> Dict:
+    """
+    Path original pre-S12.2.2: usa `migrator.get_connection()` que abre
+    SQLite local (DB_PATH) cuando NO hay credenciales Turso. Se mantiene
+    para que dev/CI/tests no necesiten Turso configurado.
+
+    NO escribe `mp_ingesta_log` en este path para no divergir del
+    comportamiento previo que los tests del flujo SQLite verifican.
+    """
+    nuevas = 0
+    actualizadas = 0
+    fallidas = 0
+    categorizadas = 0
+
+    conn = get_connection()
+    try:
+        for lic in licitaciones_raw:
+            try:
+                codigo = lic.get("CodigoExterno") or lic.get("codigo_externo")
+                if not codigo:
+                    fallidas += 1
+                    continue
+
+                existe = conn.execute(
+                    "SELECT codigo_externo FROM mp_licitaciones_vigentes WHERE codigo_externo = ?",
+                    (codigo,)
+                ).fetchone()
+
+                datos = _mapear_licitacion(lic, codigo)
+
+                if existe:
+                    conn.execute("""
+                        UPDATE mp_licitaciones_vigentes
+                        SET nombre=?, descripcion=?, fecha_cierre=?, monto_referencial=?,
+                            url_mp_canonica=COALESCE(?, url_mp_canonica), raw_json=?
+                        WHERE codigo_externo=?
+                    """, (
+                        datos["nombre"], datos["descripcion"], datos["fecha_cierre"],
+                        datos["monto_referencial"], datos["url_mp_canonica"],
+                        datos["raw_json"], codigo,
+                    ))
+                    actualizadas += 1
+                else:
+                    conn.execute(
+                        "INSERT INTO mp_licitaciones_vigentes ("
+                        + ",".join(_VIGENTES_COLS)
+                        + ") VALUES (" + ",".join("?" * len(_VIGENTES_COLS)) + ")",
+                        tuple(datos[c] for c in _VIGENTES_COLS),
+                    )
+                    nuevas += 1
+
+                    try:
+                        matches = _calcular_match_aidu(
+                            {"nombre": datos["nombre"], "descripcion": datos["descripcion"]},
+                            conn,
+                        )
+                        for cod_aidu, confianza in matches[:1]:
+                            conn.execute("""
+                                INSERT OR REPLACE INTO mp_categorizacion_aidu
+                                (codigo_externo, cod_servicio_aidu, confianza)
+                                VALUES (?, ?, ?)
+                            """, (codigo, cod_aidu, confianza))
+                            categorizadas += 1
+                    except Exception as e:
+                        logger.warning(f"Categorización fallida {codigo}: {e}")
+
+                conn.commit()
+
+            except TursoUnavailableError:
+                # Mantener defensividad de S12.2.1: si por alguna razón
+                # get_connection llega a propagar TursoUnavailableError
+                # (no debería con el chequeo de is_configured arriba,
+                # pero defensa en profundidad), abortar.
+                raise
+            except Exception as e:
+                logger.error(f"Error procesando licitación: {e}")
+                fallidas += 1
+    finally:
+        conn.close()
+
+    return {
+        "nuevas": nuevas,
+        "actualizadas": actualizadas,
+        "fallidas": fallidas,
+        "total_descargado": len(licitaciones_raw),
+        "categorizadas_aidu": categorizadas,
+        "agiles_descargadas": n_agiles,
+    }
 
 
 def _parse_fecha(fecha_str) -> Optional[str]:
