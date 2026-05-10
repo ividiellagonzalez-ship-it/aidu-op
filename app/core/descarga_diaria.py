@@ -18,9 +18,19 @@ from typing import Dict, List, Optional
 
 from app.api.mercadopublico import MercadoPublicoClient
 from app.db.migrator import get_connection
+from app.db.exceptions import TursoUnavailableError
 from app.core.ingesta import _calcular_match_aidu
 
 logger = logging.getLogger(__name__)
+
+
+class MercadoPublicoAPIError(Exception):
+    """
+    Falla atribuible a la API de Mercado Público (rate limit, downtime,
+    ticket inválido, schema inesperado en la respuesta). Mapea a exit 1
+    en el CLI. Distinta de TursoUnavailableError (BD/Turso → exit 2) y
+    de excepciones inesperadas (→ exit 3).
+    """
 
 
 def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict:
@@ -44,7 +54,16 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
     """
     cliente = MercadoPublicoClient(ticket=ticket)
 
-    licitaciones_principales = cliente.descargar_vigentes_recientes(dias_atras=dias_atras)
+    # Endpoint principal: si falla, el cron no tiene nada útil que hacer.
+    # Convertimos a MercadoPublicoAPIError tipada para que el CLI mapee a
+    # exit 1 sin recurrir a heurística por substring (S12.2.1).
+    try:
+        licitaciones_principales = cliente.descargar_vigentes_recientes(dias_atras=dias_atras)
+    except Exception as e:
+        raise MercadoPublicoAPIError(
+            f"API Mercado Público falló en endpoint principal: {e}"
+        ) from e
+
     try:
         agiles = cliente.listar_agiles_recientes(dias_atras=dias_atras)
     except Exception as e:
@@ -160,6 +179,12 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
                 
                 conn.commit()
                 
+            except TursoUnavailableError:
+                # Falla de persistencia de runtime: NO degradar a "error de
+                # licitación individual" — debe abortar el job entero. Sin
+                # este re-raise, el bug original del Run #3 se reproduce
+                # (446 inserts fallidos contra SQLite efímero, exit 0).
+                raise
             except Exception as e:
                 logger.error(f"Error procesando licitación: {e}")
                 fallidas += 1
@@ -278,15 +303,27 @@ def stats_vigentes() -> Dict:
         conn.close()
 
 
-if __name__ == "__main__":
-    # Modo CLI: invocado por el cron de GitHub Actions
-    # (ver .github/workflows/descarga_mp_diaria.yml). Exit codes alineados
-    # con criterio #7 de S12.2:
-    #   0 = éxito (incluye "0 licitaciones nuevas hoy" — no es error).
-    #   1 = error API Mercado Público (rate limit, downtime, ticket inválido).
-    #   2 = error en BD/Turso (auth, schema, sync).
+def _main() -> int:
+    """
+    Punto de entrada del CLI invocado por el cron de GitHub Actions
+    (.github/workflows/descarga_mp_diaria.yml).
+
+    Devuelve el exit code en lugar de llamar a sys.exit() para que pueda
+    testearse sin subprocess (ver tests/test_descarga_diaria_cli.py).
+
+    Exit codes (S12.2.1, reemplaza la heurística por substring de S12.2):
+      0 = éxito (incluye "0 licitaciones nuevas hoy" — no es error).
+      1 = error API Mercado Público (rate limit, downtime, ticket inválido,
+          schema inesperado). Captura MercadoPublicoAPIError.
+      2 = error en BD/Turso (handshake fallido, auth, sync). Captura
+          TursoUnavailableError. Reemplaza el fallback silencioso del
+          Run #3 que generaba exit 0 con datos perdidos.
+      3 = error inesperado (no API, no BD). Imprime traceback completo
+          para que el operador lo investigue manualmente.
+    """
     import os as _os
     import sys as _sys
+    import traceback as _tb
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
     dias = int(_os.environ.get("DIAS_ATRAS", "2"))
@@ -294,15 +331,35 @@ if __name__ == "__main__":
 
     try:
         resultado = ejecutar_descarga(dias_atras=dias)
-    except Exception as exc:
-        msg = str(exc).lower()
-        is_db_err = any(t in msg for t in ("turso", "sqlite", "operationalerror", "auth"))
-        if is_db_err:
-            logger.exception("❌ Falla persistencia (BD/Turso): exit 2")
-            _sys.exit(2)
-        logger.exception("❌ Falla API Mercado Público: exit 1")
-        _sys.exit(1)
+    except TursoUnavailableError as exc:
+        # Cubre el escenario del Run #3: handshake con Turso falla y no se
+        # puede escribir a la BD productiva. ANTES caía a SQLite local y
+        # perdía los datos descargados. AHORA aborta limpio para que el
+        # operador investigue (libsql 'Invalid header bit', token, etc.).
+        logger.error(
+            f"❌ Turso no disponible tras {exc.intentos} reintentos. "
+            f"Abortando descarga sin escribir datos. "
+            f"Las licitaciones de la API se descartan para evitar "
+            f"pérdida silenciosa. Último error: {exc.ultimo_error}"
+        )
+        return 2
+    except MercadoPublicoAPIError as exc:
+        logger.error(f"❌ Falla API Mercado Público: {exc}")
+        return 1
+    except Exception:
+        # Cualquier otra excepción: probablemente un bug. Traceback completo
+        # al stderr y exit 3 para que el operador lo trate como caso
+        # excepcional, no como ruido conocido.
+        print("❌ Error inesperado en descarga diaria. Traceback:", file=_sys.stderr)
+        _tb.print_exc()
+        return 3
 
     print("\n📊 Resultado:")
     for k, v in resultado.items():
         print(f"  {k}: {v}")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _sys.exit(_main())
