@@ -3,6 +3,202 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S12.3 v2.2 — Backfill MVP 3m × 5 regiones × CA+L1+LE (2026-05)
+
+**Branch**: `feature/s12-3-v22-mvp-3m`. **Estado**: PR pendiente de merge.
+**Plan**: `docs/sprints/AIDU_Op_S12_3_v22_MVP_3m.docx` (copia commiteada).
+
+### Filosofía
+
+MVP de validación: ventana acotada (3 meses, 5 regiones target) para
+validar que la herramienta funciona end-to-end ANTES de comprometer
+5-9 horas en descargas más amplias (S12.3.1 = 6m, S12.3.2 = 12m).
+Mismo principio que S12.1 (migrar Turso antes de poblar) y S12.2
+(cron diario antes de backfill).
+
+### Decisiones del Director (cerradas durante reconnaissance)
+
+| ID | Decisión | Aplicada |
+|---|---|---|
+| D1 | Precios via JOIN con `mp_adjudicaciones.monto_unitario`, NO denormalizar en `mp_licitaciones_items`. | ✓ |
+| D2 | `n_oferentes` ya existe en `mp_licitaciones_adj` (mig 001 línea 25). Criterio #6 apunta a esa tabla, NO a `mp_adjudicaciones`. | ✓ |
+| D3 | Extender `app/api/mercadopublico.py` con helpers de filtrado, NO crear `ocds_client_extendido.py`. | ✓ |
+| D4 | Agregar `tipo + subtipo` a `mp_ingesta_log` para bitácora granular del backfill. | ✓ |
+| D5 | Una sola migración 008 atómica con los ALTERs. | ✓ |
+| D-arq | Wrapper fino sobre `descarga_historica.py` con refactor mínimo backward-compatible. | ✓ |
+
+### Cambios por archivo
+
+- **`app/db/migrations/008_mvp_3m_backfill.sql`** (nuevo, 3 ALTERs):
+  - `mp_licitaciones_items ADD COLUMN tipo_origen TEXT DEFAULT 'producto'`
+  - `mp_ingesta_log ADD COLUMN tipo TEXT`
+  - `mp_ingesta_log ADD COLUMN subtipo TEXT`
+
+- **`app/db/migrator.py`**: `_auto_reparar_schema` agrega entradas para
+  `mp_licitaciones_items.tipo_origen` y `mp_ingesta_log.{tipo,subtipo}`
+  como respaldo idempotente (mismo patrón que el resto de la función).
+
+- **`app/api/mercadopublico.py`**: helpers nuevos de filtrado post-fetch
+  para que el script de backfill MVP filtre los resultados del endpoint
+  v1 sin duplicar lógica:
+  - `TIPOS_VALIDOS` (set canónico) + alias `'CA' → 'AGIL'`.
+  - `filtrar_por_tipo(licitaciones, tipos)`.
+  - `filtrar_por_region(licitaciones, nombres_region)` con match por
+    substring case-insensitive (tolera "Región Metropolitana de Santiago"
+    vs "Metropolitana").
+
+- **`app/core/descarga_historica.py`** — refactor backward-compatible:
+  - `_persistir_licitaciones(..., use_http_client=False)`: nuevo
+    parámetro opcional. Default `False` preserva el comportamiento previo
+    (path SQLite via `migrator.get_connection()`). `True` dispatcha a
+    `_persistir_licitaciones_http`.
+  - `_persistir_licitaciones_http(licitaciones_raw, tabla, fuente)`
+    **nuevo**: variante batched que escribe vía
+    `turso_http_client.execute_pipeline` con batches de 50 statements.
+    Incluye enriquecimiento integrado (items + adjudicaciones + organismos)
+    en la misma corrida, sin llamar `enriquecer_codigo` por licitación.
+    Marca `tipo_origen='servicio'` en items para `Tipo=LE` y `'producto'`
+    para CA/AGIL/L1/etc.
+  - `descargar_rango(..., use_http_client=False, filtro_tipos=None, filtro_regiones=None, save_raw=True)`:
+    parámetros opcionales para filtrado post-fetch y selección de path.
+  - **Backward compatibility verificada**: los 2 consumidores existentes
+    (`app/ui/dashboard_mercado.py:1031` y `app/core/refresh_cierres.py`)
+    no setean los nuevos parámetros y siguen funcionando igual.
+
+- **`app/core/backfill_fases_mvp.py`** (nuevo): orquestador de las 6 fases
+  del plan:
+  1. Cabecera CA+L1+LE adjudicadas (puebla `mp_licitaciones_adj` + items
+     + adjudicaciones + organismos en una pasada).
+  2-3. Items producto/servicio (side effect de Fase 1, sólo conteo y bitácora).
+  4. Catálogos (recalcula `mp_proveedores` desde `mp_adjudicaciones` vía HTTP).
+  5. Resoluciones (conteo de `mp_adjudicaciones`).
+  6. Vigentes (puebla `mp_licitaciones_vigentes`).
+
+  Si Fase 1 aborta, fases 2-5 NO ejecutan. Fase 4 puede fallar sin
+  bloquear 5/6. Fase 6 corre independiente.
+  Diccionario `REGIONES_CODIGO_A_NOMBRE` para resolver
+  II/V/RM/VI/X → nombres legibles (substring match).
+
+- **`scripts/backfill_mvp_3m.py`** (nuevo, +carpeta `scripts/`):
+  CLI wrapper. `python -m scripts.backfill_mvp_3m --help`. Defaults
+  del MVP (hoy - 90 días, 5 regiones, 3 tipos, 6 fases) pero **todo
+  parametrizable** — el mismo script corre S12.3.1 (`--fecha-desde
+  2025-11-10`) y S12.3.2 (`--fecha-desde 2025-05-10`) sin modificación.
+  Exit codes 0/1/2/3 heredados de S12.2.1. `--dry-run` no toca Turso.
+
+- **`tests/test_backfill_mvp_3m.py`** (nuevo, 26 tests en 6 clases):
+  - `TestCLIArgs`: parsing, dry-run, subset de fases.
+  - `TestExitCodes`: 4 paths (éxito, API, Turso, inesperado).
+  - `TestDispatcherFases`: orden estricto, abort de Fase 1 frena 2-5,
+    falla de Fase 4 NO bloquea 5/6.
+  - `TestPersistirHTTP`: `tipo_origen` correcto (servicio para LE,
+    producto para AGIL/L1), idempotencia con INSERT OR IGNORE,
+    bulk-check existencia con WHERE IN, validación de tabla cabecera.
+  - `TestRegionesYTipos`: helpers de filtrado y mapping códigos.
+  - `TestAntiRegresionSQLite`: el path HTTP del backfill NO llama
+    `get_connection()` (refuerza el fix de S12.2.1).
+
+- **`docs/sprints/AIDU_Op_S12_3_v22_MVP_3m.docx`**: copia del plan
+  para trazabilidad en el repo.
+
+### Criterios técnicos del MVP (ajustados durante reconnaissance)
+
+| # | Criterio | SQL ajustado |
+|---|---|---|
+| 1 | Exit 0 | n/a |
+| 2 | Items producto con precio | `SELECT COUNT(*) FROM mp_licitaciones_items WHERE tipo_origen='producto' AND codigo_externo IN (SELECT codigo_externo FROM mp_adjudicaciones WHERE monto_unitario > 0) ≥ 4500` |
+| 3 | Items servicio | `SELECT COUNT(*) FROM mp_licitaciones_items WHERE tipo_origen='servicio' ≥ 300` |
+| 4 | Cabecera | `SELECT COUNT(*) FROM mp_licitaciones_adj WHERE tipo IN ('CA','L1','LE') ≥ 1700` |
+| 5 | Catálogos | `SELECT COUNT(DISTINCT rut) FROM mp_proveedores ≥ 800`, `SELECT COUNT(*) FROM mp_organismos ≥ 170` |
+| 6 | **Corregido** (`mp_licitaciones_adj`) | `SELECT COUNT(*) FROM mp_licitaciones_adj WHERE n_oferentes IS NOT NULL ≥ 1700` |
+| 7 | Vigentes | `SELECT COUNT(*) FROM mp_licitaciones_vigentes WHERE tipo IN ('CA','L1','LE') ≥ 400` |
+| 8 | Bitácora | `SELECT COUNT(*) FROM mp_ingesta_log WHERE tipo='backfill_mvp_3m' = 6` |
+| 9 | Idempotencia | Re-ejecutar con mismo período NO duplica filas (verificado por `INSERT OR IGNORE`). |
+| 10 | Smoke test pricing | JOIN entre `mp_licitaciones_items i` y `mp_adjudicaciones a` por `codigo_externo + correlativo/item_correlativo`. Query exacta queda para validar post-corrida. |
+| 11 | Suite tests verde | `pytest tests/ -v`: 130/130 (104 previos + 26 nuevos). |
+| 12 | Costo Claude API = $0 | S12.3 v2.2 NO categoriza. Confirmado. |
+
+### Hallazgos del reconnaissance
+
+- **`n_oferentes` ya existe en `mp_licitaciones_adj`** (mig 001 línea 25).
+  La decisión D2 inicial (`agregar a mp_adjudicaciones`) habría duplicado
+  semánticamente. Reescrito a Opción A (no agregar, criterio #6 apunta
+  a la tabla correcta).
+- **`precio_unitario` no existe en `mp_licitaciones_items`** y NO se
+  agrega (D1 = JOIN con `mp_adjudicaciones.monto_unitario`).
+- **`descarga_historica.py` ya cubría 80% del flujo**. Su `_persistir_licitaciones`
+  + `enriquecer_codigo` extrae items, adjudicaciones, organismos. Se
+  reutilizan los parsers puros (`_extraer_items`, `_extraer_adjudicaciones_de_items`,
+  `_extraer_organismo`) sin tocar el path SQLite.
+- **FK warning del Run #8 no afecta backfill MVP**. La FK ofensora más
+  probable es `mp_categorizacion_aidu.codigo_externo → mp_licitaciones_adj`
+  (mig 001 línea 73) — el cron diario inserta categorizaciones de
+  licitaciones vigentes (no adjudicadas) que aún no están en la cabecera.
+  Sin impacto en las 6 tablas del backfill. Agendado como **S12.3.5**
+  pre-S12.4.
+
+### Hallazgos de pasada (deuda visible, fuera de scope)
+
+- **Coexistencia `mp_licitacion_items` (singular, mig 001, con FK) vs
+  `mp_licitaciones_items` (plural, mig 006, sin FK)**: la singular es
+  dead code (solo aparece en tests de bootstrap topology). Conviene
+  drop en sprint de limpieza, no en MVP.
+- **`mp_descargas_diarias`** (checkpoint local creado por
+  `descarga_historica._registrar_dia_descargado`) NO se popula en path
+  HTTP (no tiene sentido en runner efímero). El feature de "saltar días
+  ya descargados" queda inactivo en backfill MVP — la idempotencia se
+  garantiza con `INSERT OR IGNORE`, que es más simple.
+- **Rate limit interno del cliente MP = 30 req/min** (`config/settings.py:144`).
+  Conservador para el MVP (~90 requests para 3m × 2 endpoints + agil) →
+  ~5 minutos del tiempo real. Ventana 90-180 min está sobrada.
+- **`_persistir_licitaciones_http` NO popula `mp_historial_cambios`**.
+  En el path SQLite, cada cambio de campo se loguea para auditoría
+  granular. En HTTP requeriría SELECT por licitación, inviable. La
+  idempotencia se mantiene vía `INSERT OR IGNORE`. Esta diferencia entre
+  paths está documentada en el docstring de la función.
+
+### Pasos manuales del Director
+
+**Pre-ejecución (10 min)**:
+1. Pull en GitHub Desktop del último commit del PR.
+2. Verificar suite de tests verde en CI.
+3. Aplicar migración 008 a Turso (corre automática vía sistema de
+   migraciones en el próximo `get_connection()` que pase por
+   `run_migrations()`, o manualmente con los 3 ALTERs vía SQL Console).
+4. Refrescar Turso dashboard: tomar baseline de Storage y Rows Written.
+
+**Ejecución (60-180 min)** — Opción A recomendada por el plan:
+```bash
+cd /c/Users/ividi/OneDrive/Documents/GitHub/aidu-op
+python -m scripts.backfill_mvp_3m \
+    --fecha-desde 2026-02-10 \
+    --fecha-hasta 2026-05-10 \
+    --regiones II,V,RM,VI,X \
+    --tipos CA,L1,LE \
+    --batch-size 50
+```
+
+Asumiendo `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` + `MP_TICKET`
+seteadas en el shell. Logs en stdout muestran progreso por fase. Exit
+code 0 = todas las fases OK.
+
+**Validación (30 min)** post-corrida: ejecutar las queries del cuadro
+"Criterios técnicos del MVP" en Turso SQL Console y confirmar los 12.
+
+**Si exit 2** (Turso down): mensaje claro `Turso no disponible tras N
+reintentos`. Inspeccionar `Último error:` para diagnóstico (mismo
+playbook que S12.2.2).
+
+**Reutilización en S12.3.1 (6m) y S12.3.2 (12m)**:
+```bash
+# S12.3.1:
+python -m scripts.backfill_mvp_3m --fecha-desde 2025-11-10
+# S12.3.2:
+python -m scripts.backfill_mvp_3m --fecha-desde 2025-05-10
+```
+Idempotencia garantiza que re-corrida sobre datos existentes NO
+duplica. Solo agrega lo nuevo del rango extendido.
+
 ## S12.2.2 — Cron a Turso vía HTTP /v2/pipeline (2026-05)
 
 **Branch**: `feature/s12-2-2-libsql-handshake`. **Estado**: PR pendiente de merge.

@@ -632,6 +632,19 @@ def _auto_reparar_schema(conn: sqlite3.Connection):
             ("fuente", "TEXT"),
             ("version_api", "TEXT"),
         ],
+        # S12.3 v2.2 — respaldo idempotente de la migración 008.
+        # tipo_origen distingue items SKU (producto, CA+L1) de headers
+        # de servicio (servicio LE) sobre la misma tabla. Default
+        # 'producto' preserva semántica de filas pre-mig 008.
+        "mp_licitaciones_items": [
+            ("tipo_origen", "TEXT DEFAULT 'producto'"),
+        ],
+        # tipo+subtipo permiten distinguir entradas del backfill MVP
+        # ('backfill_mvp_3m' / 'fase_N_*') del cron diario sin pisarse.
+        "mp_ingesta_log": [
+            ("tipo", "TEXT"),
+            ("subtipo", "TEXT"),
+        ],
     }
     
     reparados = 0
