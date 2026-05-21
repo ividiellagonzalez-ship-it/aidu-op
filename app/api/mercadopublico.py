@@ -344,3 +344,89 @@ class MercadoPublicoClient:
             todas.extend(agiles)
         logger.info(f"🚀 Total Compras Ágiles últimos {dias_atras} días: {len(todas)}")
         return todas
+
+
+# ============================================================
+# S12.3 v2.2 — Helpers de filtrado post-fetch
+# ============================================================
+# La API v1 de MP NO acepta filtros por Tipo ni por Región como query
+# params: hay que listar todas las licitaciones del día y filtrar en
+# memoria. Estos helpers son funciones puras (sin side effects, sin red)
+# para que el script de backfill MVP filtre el resultado sin duplicar
+# lógica. Decisión D3 del sprint S12.3 v2.2: extender este módulo en
+# lugar de crear `app/api/ocds_client_extendido.py`.
+
+# Tipos canónicos que devuelve la API en el campo "Tipo" de cada licitación.
+# AGIL viene del endpoint /APISOCDS/AGIL/listar y se normaliza a Tipo="AGIL"
+# en listar_agiles_por_fecha. CA es alias del sprint para AGIL.
+TIPOS_VALIDOS = {"CA", "AGIL", "L1", "LE", "LP", "LR", "LS", "LQ", "CO"}
+_TIPO_ALIASES = {"CA": "AGIL"}  # plan habla de "CA" pero la API devuelve "AGIL"
+
+
+def filtrar_por_tipo(licitaciones: List[Dict], tipos: List[str]) -> List[Dict]:
+    """
+    Filtra una lista de licitaciones del API por el campo Tipo.
+
+    Acepta alias del sprint MVP: 'CA' se trata como 'AGIL' porque la API
+    normaliza las Compras Ágiles a Tipo='AGIL'. Otros tipos (L1/LE/LP/LR
+    /LS/LQ/CO) llegan literal del endpoint principal.
+
+    Args:
+        licitaciones: lista de dicts con campo 'Tipo' (o 'tipo').
+        tipos: lista de tipos a conservar (case-sensitive).
+
+    Returns:
+        Subset de la lista cuyo Tipo está en `tipos` (con aliases resueltos).
+    """
+    if not tipos:
+        return list(licitaciones)
+    # Resolver aliases: 'CA' → 'AGIL'.
+    tipos_resueltos = {_TIPO_ALIASES.get(t, t) for t in tipos}
+    out = []
+    for lic in licitaciones:
+        if not isinstance(lic, dict):
+            continue
+        tipo = (lic.get("Tipo") or lic.get("tipo") or "").strip()
+        if tipo in tipos_resueltos:
+            out.append(lic)
+    return out
+
+
+def filtrar_por_region(licitaciones: List[Dict], nombres_region: List[str]) -> List[Dict]:
+    """
+    Filtra licitaciones por nombre de región (substring match, case-insensitive).
+
+    La API devuelve región en `Comprador.RegionUnidad` (o a veces `Region`
+    en el root). Coincidencia por substring tolera variantes ("O'Higgins"
+    vs "del Libertador General Bernardo O'Higgins") y prefijos romanos
+    ("Región Metropolitana de Santiago").
+
+    Args:
+        licitaciones: lista de dicts.
+        nombres_region: lista de nombres legibles ("O'Higgins", "Metropolitana",
+            "Antofagasta", etc.). Mapping código→nombre vive en el script
+            que llama a este helper (no acá, para mantener el módulo agnóstico).
+
+    Returns:
+        Subset cuyas regiones matchean (parcial, lower-case) algún nombre.
+    """
+    if not nombres_region:
+        return list(licitaciones)
+    targets = [n.strip().lower() for n in nombres_region if n.strip()]
+    if not targets:
+        return list(licitaciones)
+    out = []
+    for lic in licitaciones:
+        if not isinstance(lic, dict):
+            continue
+        comprador = lic.get("Comprador") if isinstance(lic.get("Comprador"), dict) else {}
+        region = (
+            lic.get("Region")
+            or comprador.get("RegionUnidad")
+            or comprador.get("regionUnidad")
+            or ""
+        )
+        region_lower = str(region).strip().lower()
+        if any(t in region_lower for t in targets):
+            out.append(lic)
+    return out
