@@ -117,6 +117,13 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
         # Endpoint AGIL caído no debe abortar el cron — el principal ya bajó.
         logger.warning(f"⚠️  AGIL falló, continúo con principales: {e}")
         agiles = []
+    # Side-fix S13.0 hallazgo A: capturar estado del endpoint AGIL para
+    # persistir en mp_ingesta_log.agil_endpoint_estado. Permite distinguir
+    # '0 nuevas legitimas' de '0 nuevas porque endpoint cayo'.
+    # Ver docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md.
+    # Usamos literal 'no_consultado' (no la constante de MercadoPublicoClient)
+    # porque los tests mockean MercadoPublicoClient con clases fake.
+    agil_endpoint_estado = getattr(cliente, "last_agil_status", "no_consultado")
 
     licitaciones_raw = list(licitaciones_principales) + list(agiles)
     n_agiles = len(agiles)
@@ -145,7 +152,10 @@ def ejecutar_descarga(dias_atras: int = 2, ticket: Optional[str] = None) -> Dict
     )
 
     if turso_http_client.is_configured():
-        resultado = _ejecutar_via_http(licitaciones_raw, n_agiles, dias_atras)
+        resultado = _ejecutar_via_http(
+            licitaciones_raw, n_agiles, dias_atras,
+            agil_endpoint_estado=agil_endpoint_estado,
+        )
     else:
         resultado = _ejecutar_via_sqlite(licitaciones_raw, n_agiles)
 
@@ -161,6 +171,8 @@ def _ejecutar_via_http(
     licitaciones_raw: List[Dict],
     n_agiles: int,
     dias_atras: int,
+    *,
+    agil_endpoint_estado: str = "no_consultado",
 ) -> Dict:
     """
     Persiste licitaciones a Turso vía HTTP `/v2/pipeline`. Estrategia:
@@ -247,6 +259,7 @@ def _ejecutar_via_http(
         duracion_s=duracion,
         n_fallidas=fallidas,
         dias_atras=dias_atras,
+        agil_endpoint_estado=agil_endpoint_estado,
     )
 
     return {
@@ -401,29 +414,36 @@ def _batch_insert_categorizaciones(cat_inserts: List[Tuple[str, str, float]]) ->
 def _insert_ingesta_log(
     *, n_descargadas: int, n_nuevas: int, n_actualizadas: int,
     duracion_s: float, n_fallidas: int, dias_atras: int,
+    agil_endpoint_estado: Optional[str] = None,
 ) -> None:
     """
-    Escribe entrada en `mp_ingesta_log`. Schema (mig 001):
+    Escribe entrada en `mp_ingesta_log`. Schema (mig 001 + mig 008 + mig 009):
 
         id, fecha_consultada, n_licitaciones_descargadas, n_nuevas,
         n_actualizadas, duracion_segundos, estado, error_msg,
-        fecha_ejecucion (default datetime('now', 'localtime')).
+        fecha_ejecucion (default datetime('now', 'localtime')),
+        tipo, subtipo (mig 008),
+        agil_endpoint_estado (mig 009, side-fix S13.0).
 
     `fecha_consultada` es la fecha más vieja del rango: hoy - dias_atras.
     `estado` es 'OK' si fallidas == 0, 'PARCIAL' si > 0.
+    `agil_endpoint_estado` es uno de:
+        'ok' | 'caido_404' | 'error_otro' | 'no_consultado' (default si None).
     """
     fecha_consultada = (date.today() - timedelta(days=dias_atras)).isoformat()
     estado = "OK" if n_fallidas == 0 else "PARCIAL"
     error_msg = None if n_fallidas == 0 else f"{n_fallidas} licitaciones fallidas"
+    agil_estado = agil_endpoint_estado or "no_consultado"
     sql = (
         "INSERT INTO mp_ingesta_log "
         "(fecha_consultada, n_licitaciones_descargadas, n_nuevas, "
-        " n_actualizadas, duracion_segundos, estado, error_msg) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " n_actualizadas, duracion_segundos, estado, error_msg, "
+        " agil_endpoint_estado) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     args = [arg_for_value(v) for v in (
         fecha_consultada, n_descargadas, n_nuevas, n_actualizadas,
-        duracion_s, estado, error_msg,
+        duracion_s, estado, error_msg, agil_estado,
     )]
     turso_http_client.execute_pipeline([{"sql": sql, "args": args}])
 

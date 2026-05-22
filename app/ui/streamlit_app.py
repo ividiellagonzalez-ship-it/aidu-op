@@ -2597,6 +2597,7 @@ with st.sidebar:
         ("📤 5. Subir a MP",   "subir"),
         ("─── INTELIGENCIA ───", None),
         ("📊 Inteligencia",    "intel"),
+        ("🛒 Inteligencia de Mercado", "intel_mercado"),
         ("🤖 Análisis IA",     "ia"),
         ("─── ADMIN ───",      None),
         ("⚙️ Configuración",   "config"),
@@ -2705,6 +2706,7 @@ tab_subir = (seccion == "📤 5. Subir a MP")
 
 # Inteligencia
 tab_intel = (seccion == "📊 Inteligencia")
+tab_intel_mercado = (seccion == "🛒 Inteligencia de Mercado")
 tab_ia = (seccion == "🤖 Análisis IA")
 
 # Admin
@@ -2727,6 +2729,12 @@ tab_hoy = False
 if tab_dashboard:
     from app.ui.dashboard_mercado import render_dashboard_mercado
     render_dashboard_mercado()
+
+
+# S13: Inteligencia de Mercado AIDU Fast (productos < 1000 UTM O'Higgins)
+if tab_intel_mercado:
+    from app.ui.inteligencia_mercado import render_inteligencia_mercado
+    render_inteligencia_mercado()
 
 
 if tab_cartera:
