@@ -1,0 +1,39 @@
+name: '[DIAG] Analizar Otros Lote 1 (TEMPORAL)'
+
+# TEMPORAL - one-shot diagnostico post-Lote-1. NO MERGEAR A MAIN.
+# Lee las filas con linea_aidu='Otros' del lote_id='backfill_1' en Turso,
+# imprime las 152 descripciones + analisis de frecuencias + candidatos a
+# nuevos keywords. Salida al log de GH Actions; sin escritura a Turso.
+#
+# Workflow_dispatch only (no cron). Eliminar este archivo y el script
+# scripts/diagnostics/_analizar_otros_lote_1.py una vez decidida la
+# ampliacion del diccionario.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar diagnostico Otros Lote 1
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python -m scripts.diagnostics._analizar_otros_lote_1
