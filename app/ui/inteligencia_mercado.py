@@ -1,0 +1,362 @@
+"""
+AIDU Op · Pantalla Inteligencia de Mercado (S13)
+==================================================
+Consume `inteligencia_precios` y expone:
+
+  Tab 1 - Buscador de precios:
+    - Input de texto libre (busca en producto_descripcion).
+    - Filtros: linea AIDU, tipo objeto, organismo, proveedor,
+      rango de fecha de adjudicacion, rango de precio_unitario.
+    - Tabla de resultados.
+    - Stats agregadas: mediana / p25 / p75 / min / max / n.
+    - Top 5 proveedores ganadores del filtro actual.
+    - Export Excel.
+
+  Tab 2 - Productos mas comprados:
+    - Ranking 50 productos con mayor monto_total acumulado.
+    - Columnas: producto, monto_total, cantidad_total, frecuencia
+      (n_licitaciones), top 3 organismos compradores, proveedor dominante.
+    - Filtro por linea AIDU.
+    - Export Excel.
+
+Source: tabla `inteligencia_precios` (mig 009). Una fila = un item adjudicado.
+Las estadisticas se calculan al vuelo desde pandas — no hay vistas
+materializadas (spec D3 + sec 2.3).
+"""
+from __future__ import annotations
+
+import io
+from datetime import date, timedelta
+from typing import List, Optional, Tuple
+
+import pandas as pd
+import streamlit as st
+
+from app.db.migrator import get_connection
+
+
+# ============================================================
+# CONSTANTES UI
+# ============================================================
+
+LINEAS_AIDU_FAST = ["Ferreteria", "Aseo", "Oficina", "Equipamiento", "Otros"]
+TIPOS_OBJETO = ["producto", "servicio", "hibrido"]
+
+
+# ============================================================
+# QUERIES (data layer)
+# ============================================================
+
+@st.cache_data(ttl=300)
+def _cargar_inteligencia_precios(
+    fecha_desde_iso: str,
+    fecha_hasta_iso: str,
+) -> pd.DataFrame:
+    """Trae todas las filas del rango. Cache 5 min para evitar hits a Turso
+    en cada interaccion del usuario.
+    Devuelve DataFrame vacio si la tabla no existe (mig 009 no aplicada)."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            SELECT id_item, codigo_mp, correlativo_item, fecha_adjudicacion,
+                   tipo_licitacion, organismo_comprador, unit_code,
+                   organismo_region, region_entrega, producto_descripcion,
+                   unidad_medida, cantidad, precio_unitario, monto_total,
+                   proveedor_nombre, proveedor_rut, n_oferentes,
+                   linea_aidu, tipo_objeto, keywords_matched, lote_id
+              FROM inteligencia_precios
+             WHERE fecha_adjudicacion BETWEEN ? AND ?
+            """,
+            (fecha_desde_iso, fecha_hasta_iso),
+        )
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+        return pd.DataFrame(rows, columns=cols)
+    except Exception as e:
+        st.warning(
+            f"No se pudo leer inteligencia_precios ({e}). "
+            "Verificar que la migracion 009 este aplicada."
+        )
+        return pd.DataFrame()
+
+
+# ============================================================
+# UTILIDADES
+# ============================================================
+
+def _aplicar_filtros(
+    df: pd.DataFrame,
+    *,
+    texto: str,
+    linea: Optional[str],
+    tipo_objeto: Optional[str],
+    organismo: Optional[str],
+    proveedor: Optional[str],
+    precio_min: Optional[float],
+    precio_max: Optional[float],
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+    f = df
+    if texto:
+        t = texto.lower()
+        f = f[f["producto_descripcion"].fillna("").str.lower().str.contains(t, na=False)]
+    if linea and linea != "(todas)":
+        f = f[f["linea_aidu"] == linea]
+    if tipo_objeto and tipo_objeto != "(todos)":
+        f = f[f["tipo_objeto"] == tipo_objeto]
+    if organismo:
+        f = f[f["organismo_comprador"].fillna("").str.contains(organismo, case=False, na=False)]
+    if proveedor:
+        f = f[f["proveedor_nombre"].fillna("").str.contains(proveedor, case=False, na=False)]
+    if precio_min is not None:
+        f = f[f["precio_unitario"].fillna(-1) >= precio_min]
+    if precio_max is not None and precio_max > 0:
+        f = f[f["precio_unitario"].fillna(1e18) <= precio_max]
+    return f
+
+
+def _df_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "datos") -> bytes:
+    """Convierte DataFrame a bytes XLSX para st.download_button."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+    return buf.getvalue()
+
+
+def _stats_precio(df: pd.DataFrame) -> dict:
+    """Calcula mediana / p25 / p75 / min / max / n sobre precio_unitario.
+    Ignora NULL (esperable hasta 36% en L1 segun hallazgo S13.0)."""
+    precios = df["precio_unitario"].dropna()
+    if precios.empty:
+        return {"n": 0, "mediana": None, "p25": None, "p75": None,
+                "minimo": None, "maximo": None}
+    return {
+        "n": int(len(precios)),
+        "mediana": float(precios.median()),
+        "p25": float(precios.quantile(0.25)),
+        "p75": float(precios.quantile(0.75)),
+        "minimo": float(precios.min()),
+        "maximo": float(precios.max()),
+    }
+
+
+def _top_proveedores(df: pd.DataFrame, n: int = 5) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["proveedor", "n_items", "monto_total"])
+    agg = (
+        df.groupby(["proveedor_rut", "proveedor_nombre"], dropna=False)
+        .agg(n_items=("id_item", "count"), monto_total=("monto_total", "sum"))
+        .reset_index()
+        .sort_values("monto_total", ascending=False)
+        .head(n)
+    )
+    return agg
+
+
+def _ranking_productos(df: pd.DataFrame, top_n: int = 50) -> pd.DataFrame:
+    """Agrupa por (producto_descripcion lowercase truncated) — proxy de
+    'mismo producto' sin requerir homologacion fuerte. Para una version
+    posterior, se puede sustituir por clusterizacion semantica."""
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "producto", "monto_total", "cantidad_total", "frecuencia",
+            "top_organismos", "proveedor_dominante",
+        ])
+    f = df.copy()
+    f["producto_norm"] = (
+        f["producto_descripcion"].fillna("").str.lower().str.strip().str[:80]
+    )
+    grupos = []
+    for producto, sub in f.groupby("producto_norm"):
+        if not producto:
+            continue
+        monto = float(sub["monto_total"].fillna(0).sum())
+        cantidad = float(sub["cantidad"].fillna(0).sum())
+        freq = int(sub["codigo_mp"].nunique())
+        top_orgs = (
+            sub["organismo_comprador"].fillna("")
+            .value_counts().head(3).index.tolist()
+        )
+        prov_dom = (
+            sub["proveedor_nombre"].fillna("")
+            .value_counts().head(1).index.tolist()
+        )
+        grupos.append({
+            "producto": producto,
+            "monto_total": monto,
+            "cantidad_total": cantidad,
+            "frecuencia": freq,
+            "top_organismos": " | ".join(o for o in top_orgs if o),
+            "proveedor_dominante": prov_dom[0] if prov_dom else "",
+        })
+    out = pd.DataFrame(grupos).sort_values("monto_total", ascending=False).head(top_n)
+    return out
+
+
+# ============================================================
+# RENDER
+# ============================================================
+
+def render_inteligencia_mercado() -> None:
+    """Entry point invocado desde streamlit_app.py."""
+    st.markdown("""
+    <div style="margin-bottom:18px;">
+      <h1 style="margin:0; font-size:28px;">🛒 Inteligencia de Mercado · O'Higgins</h1>
+      <p style="margin:4px 0 0 0; font-size:13px; color:#64748B;">
+        Adjudicaciones L1 + LE + CO &lt; 1.000 UTM en Region O'Higgins,
+        ventana 90 dias. Fuente: tabla <code>inteligencia_precios</code>.
+        (CA fuera del scope hasta resolver
+        <a href="#" title="docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md">S13.1</a>.)
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Rango global por defecto: ultimos 90 dias
+    hoy = date.today()
+    rango_default = (hoy - timedelta(days=90), hoy)
+    df_full = _cargar_inteligencia_precios(
+        rango_default[0].isoformat(),
+        rango_default[1].isoformat(),
+    )
+
+    if df_full.empty:
+        st.info(
+            "**Sin datos todavia.** La tabla `inteligencia_precios` esta vacia. "
+            "Para poblarla: disparar el workflow `inteligencia_backfill_lote.yml` "
+            "(lote 1 a 4 cubre 90 dias) o esperar al cron diario."
+        )
+        return
+
+    tab_buscar, tab_top = st.tabs([
+        "🔍 Buscador de precios",
+        "📈 Productos mas comprados",
+    ])
+
+    with tab_buscar:
+        _render_tab_buscador(df_full)
+    with tab_top:
+        _render_tab_top_productos(df_full)
+
+
+def _render_tab_buscador(df_full: pd.DataFrame) -> None:
+    st.subheader("Buscar precios adjudicados")
+    col_izq, col_der = st.columns([2, 1])
+    with col_izq:
+        texto = st.text_input(
+            "Buscar en descripcion del item",
+            placeholder="Ej: cemento, papel higienico, computador, ...",
+            key="ip_search_text",
+        )
+    with col_der:
+        linea = st.selectbox(
+            "Linea AIDU",
+            options=["(todas)"] + LINEAS_AIDU_FAST,
+            key="ip_filter_linea",
+        )
+
+    with st.expander("Filtros avanzados"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            tipo_obj = st.selectbox(
+                "Tipo objeto",
+                options=["(todos)"] + TIPOS_OBJETO,
+                key="ip_filter_tipo",
+            )
+        with c2:
+            organismo = st.text_input("Organismo (contiene)", key="ip_filter_org")
+        with c3:
+            proveedor = st.text_input("Proveedor (contiene)", key="ip_filter_prov")
+        c4, c5 = st.columns(2)
+        with c4:
+            precio_min = st.number_input(
+                "Precio unitario minimo (CLP)",
+                min_value=0.0, value=0.0, step=1000.0,
+                key="ip_filter_pmin",
+            )
+        with c5:
+            precio_max = st.number_input(
+                "Precio unitario maximo (CLP, 0 = sin tope)",
+                min_value=0.0, value=0.0, step=1000.0,
+                key="ip_filter_pmax",
+            )
+
+    df_filtrado = _aplicar_filtros(
+        df_full,
+        texto=texto,
+        linea=linea,
+        tipo_objeto=tipo_obj,
+        organismo=organismo,
+        proveedor=proveedor,
+        precio_min=precio_min if precio_min > 0 else None,
+        precio_max=precio_max if precio_max > 0 else None,
+    )
+
+    # Stats
+    stats = _stats_precio(df_filtrado)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("N muestras", f"{stats['n']:,}")
+    c2.metric("Mediana", f"${int(stats['mediana']):,}" if stats["mediana"] else "—")
+    c3.metric("P25", f"${int(stats['p25']):,}" if stats["p25"] else "—")
+    c4.metric("P75", f"${int(stats['p75']):,}" if stats["p75"] else "—")
+    c5.metric("Minimo", f"${int(stats['minimo']):,}" if stats["minimo"] else "—")
+    c6.metric("Maximo", f"${int(stats['maximo']):,}" if stats["maximo"] else "—")
+
+    # Top proveedores
+    st.markdown("##### Top 5 proveedores en este filtro")
+    top_prov = _top_proveedores(df_filtrado, n=5)
+    st.dataframe(top_prov, use_container_width=True, hide_index=True)
+
+    # Tabla de resultados (limit 500 para no romper Streamlit con N grande)
+    st.markdown(f"##### Resultados ({len(df_filtrado):,} items, mostrando hasta 500)")
+    cols_visibles = [
+        "fecha_adjudicacion", "tipo_licitacion", "linea_aidu", "tipo_objeto",
+        "producto_descripcion", "cantidad", "unidad_medida",
+        "precio_unitario", "monto_total",
+        "proveedor_nombre", "organismo_comprador", "n_oferentes",
+        "codigo_mp", "keywords_matched",
+    ]
+    cols_validas = [c for c in cols_visibles if c in df_filtrado.columns]
+    st.dataframe(
+        df_filtrado[cols_validas].head(500),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # Export Excel
+    if not df_filtrado.empty:
+        excel_bytes = _df_a_excel_bytes(df_filtrado[cols_validas], sheet_name="buscador")
+        st.download_button(
+            "⬇️ Exportar a Excel",
+            data=excel_bytes,
+            file_name=f"inteligencia_precios_{date.today().isoformat()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="ip_export_buscador",
+        )
+
+
+def _render_tab_top_productos(df_full: pd.DataFrame) -> None:
+    st.subheader("Productos mas comprados (90 dias)")
+    linea = st.selectbox(
+        "Filtrar por linea AIDU",
+        options=["(todas)"] + LINEAS_AIDU_FAST,
+        key="ip_top_linea",
+    )
+    df = df_full
+    if linea and linea != "(todas)":
+        df = df[df["linea_aidu"] == linea]
+
+    ranking = _ranking_productos(df, top_n=50)
+    st.markdown(f"##### Ranking top 50 (filtrados: {len(df):,} items)")
+    st.dataframe(ranking, use_container_width=True, hide_index=True)
+
+    if not ranking.empty:
+        excel_bytes = _df_a_excel_bytes(ranking, sheet_name="top_productos")
+        st.download_button(
+            "⬇️ Exportar a Excel",
+            data=excel_bytes,
+            file_name=f"top_productos_{date.today().isoformat()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="ip_export_top",
+        )

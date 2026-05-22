@@ -1,0 +1,6 @@
+# Python bytecode
+**/__pycache__/
+*.pyc
+
+# S13: cache de runtime del seed CSV (se regenera con scripts/_seed_organismos_ohiggins.py)
+scripts/_seed_progress.json

@@ -1,0 +1,111 @@
+name: Inteligencia precios - Backfill por lote
+
+# S13 - Backfill controlado de inteligencia_precios en lotes de ~22 dias.
+# 4 dispatches manuales cubren el window de 90 dias:
+#   Lote 1: 2026-04-30 .. 2026-05-21  (mas reciente; usar primero para
+#                                       descubrir bugs en datos frescos)
+#   Lote 2: 2026-04-08 .. 2026-04-29
+#   Lote 3: 2026-03-17 .. 2026-04-07
+#   Lote 4: 2026-02-22 .. 2026-03-16
+#
+# Cada lote ~3.5h con buffer de 2.5h sobre el limite 6h por job.
+# Idempotente via INSERT OR IGNORE en (codigo_mp, correlativo_item):
+#   re-disparar un lote fallido con MISMOS fecha_desde + fecha_hasta NO duplica.
+#
+# Re-dispatch policy (ver docs/changelog.md):
+# - Para reintentar un lote fallido: workflow_dispatch con los mismos inputs.
+# - Verificar post-dispatch:
+#       SELECT COUNT(*) FROM inteligencia_precios
+#       WHERE fecha_adjudicacion >= '{fecha_desde}'
+#         AND fecha_adjudicacion <= '{fecha_hasta}';
+#
+# Monitoreo del job:
+# - El script imprime [PROGRESO] cada 100 detalles a stdout (visible en
+#   la pestaña Actions). Si pasan > 10 min sin nueva linea, asumir trabazon
+#   y abortar manualmente con Cancel workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lote_id:
+        description: 'Tag del lote (ej: backfill_1, backfill_2, ...)'
+        required: true
+        default: 'backfill_1'
+      fecha_desde:
+        description: 'ISO YYYY-MM-DD'
+        required: true
+        default: '2026-04-30'
+      fecha_hasta:
+        description: 'ISO YYYY-MM-DD'
+        required: true
+        default: '2026-05-21'
+      progress_every:
+        description: 'Frecuencia del log [PROGRESO]'
+        required: false
+        default: '100'
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # 350 min = 5h50m. Buffer de 10 min sobre la duracion esperada (~3.5h)
+    # y a 10 min del limite hard de GH Actions (6h = 360 min).
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout codigo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pre-flight check (dry-run)
+        env:
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m scripts.cargar_inteligencia_ohiggins \
+            --fecha-desde ${{ inputs.fecha_desde }} \
+            --fecha-hasta ${{ inputs.fecha_hasta }} \
+            --lote-id ${{ inputs.lote_id }} \
+            --discovery-sample-size 0 \
+            --dry-run
+
+      - name: Ejecutar backfill lote ${{ inputs.lote_id }}
+        env:
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m scripts.cargar_inteligencia_ohiggins \
+            --fecha-desde ${{ inputs.fecha_desde }} \
+            --fecha-hasta ${{ inputs.fecha_hasta }} \
+            --lote-id ${{ inputs.lote_id }} \
+            --discovery-sample-size 0 \
+            --progress-every ${{ inputs.progress_every }}
+
+      - name: Reporte de conteo post-backfill
+        if: always()
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -c "
+          from app.db import turso_http_client
+          rows = turso_http_client.query_all(
+              \"SELECT COUNT(*) FROM inteligencia_precios WHERE lote_id = ?\",
+              [{'type': 'text', 'value': '${{ inputs.lote_id }}'}]
+          )
+          print(f'Total filas con lote_id={{${{ inputs.lote_id }}}}: {rows[0][0] if rows else 0}')
+          "

@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 class MercadoPublicoClient:
     """Cliente con rate limiting interno usando ventana deslizante"""
 
+    # ---- Estados del endpoint AGIL (side-fix S13.0 hallazgo A) ----
+    # Ver docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md
+    AGIL_OK = "ok"                       # HTTP 200, data (vacia o no)
+    AGIL_DOWN_404 = "caido_404"          # HTTP 404 confirmado
+    AGIL_ERROR_OTRO = "error_otro"       # HTTP 401/403/5xx/network/timeout
+    AGIL_NO_CONSULTADO = "no_consultado" # No se llamo AGIL en esta sesion
+
     def __init__(self, ticket: Optional[str] = None, save_raw: bool = True):
         # Lazy fetch del ticket — funciona en Streamlit Cloud
         self.ticket = ticket or get_mp_ticket() or MP_TICKET_DEMO
@@ -43,6 +50,10 @@ class MercadoPublicoClient:
             "User-Agent": "AIDU-Op/1.0 (Python; aidu.op@gmail.com)",
             "Accept": "application/json",
         })
+
+        # Side-fix S13.0: estado del endpoint AGIL en la ultima llamada.
+        # Leido por descarga_diaria.py para poblar mp_ingesta_log.agil_endpoint_estado.
+        self.last_agil_status = self.AGIL_NO_CONSULTADO
 
         if self.ticket == MP_TICKET_DEMO:
             logger.warning("⚠️  Usando ticket DEMO público (rate limit reducido)")
@@ -243,8 +254,17 @@ class MercadoPublicoClient:
 
     def _request_agil(self, endpoint: str, params: Dict[str, Any]) -> Optional[Dict]:
         """
-        Request al endpoint de Compras Ágiles. Usa misma lógica de
-        rate limiting + retries que el cliente principal.
+        Request al endpoint de Compras Ágiles con clasificación explícita
+        del resultado (side-fix S13.0 hallazgo A).
+
+        Actualiza `self.last_agil_status` en cada exit path para que el
+        caller (descarga_diaria.py) pueda persistir el estado en
+        mp_ingesta_log.agil_endpoint_estado.
+
+        Reemplaza el comportamiento previo donde HTTP 404 quedaba como
+        WARNING silencioso y el caller no podia distinguir "0 nuevas
+        legitimas" de "endpoint caido". Ver docs/sprints/
+        AIDU_Op_S13_1_Restaurar_Compras_Agiles.md.
         """
         self._wait_for_rate_limit()
         params["ticket"] = self.ticket
@@ -255,8 +275,25 @@ class MercadoPublicoClient:
                 resp = self.session.get(url, params=params, timeout=MP_REQUEST_TIMEOUT)
                 if resp.status_code == 200:
                     try:
-                        return resp.json()
+                        data = resp.json()
+                        self.last_agil_status = self.AGIL_OK
+                        # INFO si volvio con 0 resultados (legitimo, no crisis)
+                        try:
+                            empty = (
+                                (isinstance(data, list) and len(data) == 0) or
+                                (isinstance(data, dict) and not (
+                                    data.get("data") or data.get("Listado")
+                                ))
+                            )
+                            if empty:
+                                logger.info(
+                                    f"AGIL HTTP 200 con 0 resultados para {params.get('fecha')}"
+                                )
+                        except Exception:
+                            pass
+                        return data
                     except json.JSONDecodeError:
+                        self.last_agil_status = self.AGIL_ERROR_OTRO
                         logger.error(f"AGIL respuesta no es JSON: {resp.text[:200]}")
                         return None
                 elif resp.status_code in (429, 503):
@@ -265,16 +302,37 @@ class MercadoPublicoClient:
                     time.sleep(backoff)
                     continue
                 elif resp.status_code == 401:
-                    logger.error("❌ AGIL HTTP 401: ticket inválido")
+                    self.last_agil_status = self.AGIL_ERROR_OTRO
+                    logger.error("AGIL HTTP 401: ticket invalido o sin scope AGIL")
+                    return None
+                elif resp.status_code == 404:
+                    # Hallazgo S13.0: endpoint AGIL devuelve 404 con ticket
+                    # productivo. NO es ticket invalido, NO es rate limit.
+                    # Es el endpoint que fue movido/eliminado por MercadoPublico.
+                    # Tracked en S13.1.
+                    self.last_agil_status = self.AGIL_DOWN_404
+                    logger.warning(
+                        "AGIL HTTP 404 - endpoint caido (ver S13.1, "
+                        "docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md)"
+                    )
                     return None
                 else:
-                    logger.warning(f"AGIL HTTP {resp.status_code} para {params}")
+                    self.last_agil_status = self.AGIL_ERROR_OTRO
+                    logger.error(f"AGIL HTTP {resp.status_code} para {params}")
                     return None
             except requests.Timeout:
+                self.last_agil_status = self.AGIL_ERROR_OTRO
+                logger.error(f"AGIL timeout (intento {intento+1}/{MP_MAX_RETRIES})")
                 time.sleep(MP_RETRY_BACKOFF)
             except requests.RequestException as e:
+                self.last_agil_status = self.AGIL_ERROR_OTRO
                 logger.error(f"AGIL error red: {e}")
                 time.sleep(MP_RETRY_BACKOFF)
+        # Si llegamos aca: agotamos retries por 429/503 o por excepciones
+        # de red sucesivas. Si no setteamos un status mas especifico antes,
+        # marcamos como error_otro.
+        if self.last_agil_status == self.AGIL_NO_CONSULTADO:
+            self.last_agil_status = self.AGIL_ERROR_OTRO
         return None
 
     def listar_agiles_por_fecha(self, fecha: date) -> List[Dict]:

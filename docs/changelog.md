@@ -3,6 +3,252 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13 — MVP Inteligencia de Mercado · O'Higgins (2026-05)
+
+**Branch**: `feature/s13-inteligencia-mercado-ohiggins`. **Estado**: PR pendiente.
+**Cliente del sprint**: AIDU Fast (B2G productos < 1000 UTM).
+**Plan**: `Downloads/AIDU_Op_S13_MVP_Inteligencia_Ohiggins.docx` (entrega del Director).
+**Sprint paralelo originado**: `docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md`.
+
+### Filosofía
+
+Cerrar la brecha entre infraestructura técnica (S12.x) y negocio. Una sola
+pregunta operacional: ¿a qué precio se han adjudicado productos similares
+en O'Higgins en los últimos 90 días? Tabla plana materializada, categorización
+por keywords simples, sin Claude API en este sprint (el algoritmo avanzado
+queda para S14).
+
+### Decisiones del Director (cerradas durante reconnaissance S13)
+
+| ID | Decisión | Aplicada |
+|----|----------|----------|
+| D1 | Convivencia: nuevo eje `linea_aidu_fast` paralelo a CE/GP servicios. NO reemplaza. | ✓ |
+| D2 | Keywords en `aidu_servicios_keywords` con discriminador `tipo='aidu_fast'`. ALTER agrega la columna. | ✓ |
+| D3 | Tabla plana materializada `inteligencia_precios` (no view). | ✓ |
+| D4 | Módulo nuevo `ingesta_inteligencia_precios.py`. NO toca `inteligencia_precios_v2.py`. | ✓ |
+| D5 | Workflow separado `inteligencia_adjudicadas_diaria.yml`. NO suma step al cron principal. | ✓ |
+| D6 | Backfill vía GH Actions, **4 lotes de 22 días** (no 3×30 — 3.5h/lote con buffer de 2.5h sobre límite hard de 6h). | ✓ |
+| D7 | `tipo_objeto` en `inteligencia_precios` con heurística del spec sec 3.3. NO leer de `mp_licitaciones_items.tipo_origen`. | ✓ |
+| OK-A | Aceptar ~36% NULL en `monto_unitario` para L1 (impacto neto ~15% global). | ✓ |
+| OK-B | Lotes de 22 días × 4 dispatches manuales (lote 1 = más reciente primero). | ✓ |
+| OK-C | Ingestor dedupe **por unit_code, NO por nombre_organismo** (misma comuna tiene múltiples unidades de compra). Comentario explícito en código. | ✓ |
+| OK-3 mod | CSV de organismos generado automáticamente vía sampling 7d + auto-discovery por cron (tabla `organismos_ohiggins_auto`). | ✓ |
+| OK-4 mod | Spike S13.0a previo determinó **escenario (b)**: AGIL endpoint caído. CA fuera de scope S13, agendado en S13.1. | ✓ |
+
+### Hallazgos del reconnaissance (S13.0)
+
+**Hallazgo A — Endpoint AGIL devuelve HTTP 404.** Spike `scripts/diagnostics/_recon_agil_check.py`
+probó 5 variantes de URL × 3 formatos de fecha = 15 combinaciones con ticket
+productivo: 15/15 → HTTP 404. Sanity check del endpoint principal con mismo ticket =
+HTTP 200 (337 adjudicadas el 2026-05-19). Conclusión: endpoint AGIL fue
+eliminado o movido. CA queda fuera de S13; trabajo agendado como sprint
+independiente S13.1 (ver `docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md`).
+**Side-fix incluido en este PR**: `_request_agil` clasifica HTTP 404 explícitamente
+y persiste en `mp_ingesta_log.agil_endpoint_estado` para que el bug deje de ser
+silencioso.
+
+**Hallazgo B — Listado básico de `/licitaciones.json?estado=adjudicada` solo trae
+4 campos** (CodigoExterno, Nombre, CodigoEstado, FechaCierre). NO trae Region/Tipo.
+Para filtrar por O'Higgins hay que pegar `detalle_licitacion()` de cada licitación
+nacional: 90 días × 300/día × 25 req/min = ~15 horas como filtro ingenuo.
+**Mitigación**: filtro pre-detalle por `unit_code` (primer segmento del
+CodigoExterno) usando `config/organismos_ohiggins.csv` (41 organismos al cierre
+de S13.0) + auto-discovery en cron diario (25 codigos no-seed/día) que pueblan
+`organismos_ohiggins_auto`. Reduce ~27k → ~2k requests para el backfill 90 días.
+
+**Hallazgo C — La API usa U+00B4 (´ ACUTE ACCENT) como apóstrofe en
+`Region`**, no U+0027 (') ASCII ni U+2019 (') smart quote. Inspección de
+codepoints: `'Region del Libertador General Bernardo O´Higgins'` ← U+00B4.
+**Mitigación**: `categorizador_aidu_fast.normalizar_texto` reemplaza U+00B4,
+U+2019, U+2018, U+0060 → U+0027 antes de comparar. Aplicado al matcher de
+región y a la búsqueda de keywords. Side-fix también para `MP_REGION_TO_CODE`
+en `app/core/catalogo_aidu.py` (TODO: este side-fix queda para S13.x; el
+matcher actual `filtrar_por_region` usa substring case-insensitive, no exact
+match, y por eso no había bloqueado producción).
+
+**Hallazgo lateral — TD-01**: tercera vez que aparece el bug `cp1252
+UnicodeEncodeError` en scripts CLI Windows. Agendado en `docs/tech_debt.md`
+TD-01: crear `app/utils/console.py` con `setup_utf8_console()` reutilizable.
+Out of scope S13.
+
+### Cambios por archivo
+
+- **`app/db/migrations/009_inteligencia_precios.sql`** (nuevo):
+  - `CREATE TABLE inteligencia_precios` (22 columnas, UNIQUE en
+    `(codigo_mp, correlativo_item)`, 7 índices).
+  - `CREATE TABLE organismos_ohiggins_auto` (auto-discovery por cron).
+  - `ALTER TABLE aidu_servicios_keywords ADD COLUMN tipo TEXT DEFAULT 'aidu_op'`
+    (discrimina filas Op vs Fast).
+  - `ALTER TABLE mp_ingesta_log ADD COLUMN agil_endpoint_estado TEXT
+    DEFAULT 'ok'` (side-fix hallazgo A).
+  - Seeds: 4 filas en `aidu_servicios_keywords` con `tipo='aidu_fast'`
+    (FAST-FERRETERIA, FAST-ASEO, FAST-OFICINA, FAST-EQUIPAMIENTO),
+    ≥20 keywords cada una.
+
+- **`config/keywords_aidu_fast.csv`** (nuevo, 168 filas):
+  source-of-truth declarativa de las keywords (`linea,keyword,activo`).
+  Mismas keywords que la migración 009. Si se actualiza el CSV, futura
+  migración 010 hará `DELETE+INSERT WHERE tipo='aidu_fast'`.
+
+- **`config/organismos_ohiggins.csv`** (nuevo, 41 filas):
+  seed inicial generado por `scripts/_seed_organismos_ohiggins.py` con
+  sampling de 7 días × 250 detalles/día. Calidad 100% en los 4 campos.
+  Auto-discovery del cron diario lo expandirá durante operación.
+
+- **`app/api/mercadopublico.py`** (modificado, side-fix S13.0 hallazgo A):
+  - Constantes `AGIL_OK | AGIL_DOWN_404 | AGIL_ERROR_OTRO | AGIL_NO_CONSULTADO`.
+  - Attribute `self.last_agil_status` actualizado en cada exit path de
+    `_request_agil`.
+  - HTTP 404 ahora marca `AGIL_DOWN_404` con WARNING explícito que
+    referencia S13.1 (en vez de WARNING genérico).
+  - HTTP 200 con 0 resultados → INFO (no error).
+  - HTTP 401/403/5xx/timeout/network → `AGIL_ERROR_OTRO` con ERROR.
+
+- **`app/core/descarga_diaria.py`** (modificado, side-fix S13.0 hallazgo A):
+  - Lee `cliente.last_agil_status` post-llamada AGIL.
+  - Propaga `agil_endpoint_estado` a `_ejecutar_via_http` y de ahí a
+    `_insert_ingesta_log`.
+  - `_insert_ingesta_log` agrega el campo al INSERT.
+
+- **`app/core/categorizador_aidu_fast.py`** (nuevo, 230 líneas):
+  - `normalizar_texto`, `normalizar_region`, `es_ohiggins`.
+  - `categorizar_linea(descripcion)` → `(linea, keywords_matched)`.
+    Substring match insensible a acentos. Spec sec 3.2.
+  - `categorizar_tipo_objeto(descripcion)` → `'producto'|'servicio'|'hibrido'`.
+    Heurística del spec sec 3.3.
+  - Cache del catálogo + `reset_cache()` para tests.
+  - Carga desde tabla SQL (runtime) o CSV (tests).
+
+- **`app/core/ingesta_inteligencia_precios.py`** (nuevo, ~450 líneas):
+  - `cargar_unit_codes_validos()` = CSV semilla ∪ `organismos_ohiggins_auto`.
+  - `_filtrar_listado` → matched + sample_discovery.
+  - `expandir_items(detalle)` → lista de items normalizados.
+  - `categorizar_item` envuelve el categorizador.
+  - `persistir_lote` con batches de 50 statements vía `turso_http_client.execute_pipeline`,
+    `INSERT OR IGNORE` por `UNIQUE (codigo_mp, correlativo_item)`.
+  - `persistir_descubrimientos` agrega a `organismos_ohiggins_auto`.
+  - `ingerir_rango(fecha_desde, fecha_hasta, lote_id, discovery_sample_size,
+    progress_callback, progress_every)` orquesta el pipeline.
+  - Stats devueltos en `StatsCorrida` dataclass.
+
+- **`scripts/cargar_inteligencia_ohiggins.py`** (nuevo CLI):
+  argparse: `--fecha-desde --fecha-hasta --lote-id --discovery-sample-size
+  --progress-every --batch-size --verbose --dry-run`. Imprime `[PROGRESO]`
+  cada N detalles con eta calculado por proporción de días procesados.
+  Exit codes 0/1/2/3. UTF-8 wrapper aplicado (TD-01 ad-hoc).
+
+- **`.github/workflows/inteligencia_backfill_lote.yml`** (nuevo):
+  `workflow_dispatch` con inputs `lote_id, fecha_desde, fecha_hasta,
+  progress_every`. Pre-flight dry-run + ejecución + reporte de conteo
+  post-backfill. `timeout-minutes: 350` (10 min buffer sobre límite GH 360).
+
+- **`.github/workflows/inteligencia_adjudicadas_diaria.yml`** (nuevo):
+  cron `0 14 * * *` (post descarga principal de 10:00 UTC) + `workflow_dispatch`.
+  Ventana hoy-7 .. ayer. `discovery-sample-size 25` para descubrimiento orgánico.
+
+- **`app/ui/inteligencia_mercado.py`** (nuevo, ~280 líneas):
+  - Tab "Buscador de precios": text input + filtros (línea AIDU, tipo
+    objeto, organismo, proveedor, rango precio) + stats (n, mediana,
+    p25/p75, min/max) + top 5 proveedores + tabla resultados (limit 500)
+    + export XLSX.
+  - Tab "Productos más comprados": ranking top 50 agrupado por
+    `producto_descripcion lowercase[:80]`, columnas (producto, monto_total,
+    cantidad, frecuencia, top 3 organismos, proveedor dominante), filtro
+    línea, export XLSX.
+  - Cache `@st.cache_data(ttl=300)`.
+
+- **`app/ui/streamlit_app.py`** (modificado):
+  - Nueva opción `"🛒 Inteligencia de Mercado"` en `NAV_OPCIONES`.
+  - Tab flag `tab_intel_mercado` + branch `if tab_intel_mercado:`
+    que importa y llama `render_inteligencia_mercado()`.
+
+- **`tests/test_categorizador_aidu_fast.py`** (nuevo, 51 tests):
+  - 4 lineas × ≥25 casos = ≥100 casos. Acierto ≥80% por línea (spec sec 4.3).
+  - tipo_objeto: 22 casos producto/servicio/hibrido (spec exige ≥15).
+  - Normalización Unicode (incluye U+00B4 hallazgo C).
+  - es_ohiggins con todas las variantes observadas en API.
+
+- **`tests/test_ingesta_inteligencia_precios.py`** (nuevo, 24 tests):
+  - `extraer_unit_code` con 6 inputs.
+  - `_filtrar_listado` filtro + discovery sampling + dedupe (misma comuna,
+    2 unit_codes distintos → ambos pasan).
+  - `expandir_items` con shapes reales de la API (1 item, multi-item,
+    NULL en MontoUnitario).
+  - Idempotencia: SQL emitido es `INSERT OR IGNORE`, UNIQUE en migración,
+    `persistir_lote` envia batches correctos (mock execute_pipeline).
+  - TIPOS_SCOPE excluye CA (documenta S13.1).
+
+- **`docs/sprints/AIDU_Op_S13_1_Restaurar_Compras_Agiles.md`** (nuevo):
+  sprint independiente, BLOQUEADO pendiente investigación nuevo endpoint MP.
+  Reproductor: `scripts/diagnostics/_recon_agil_check.py`.
+
+- **`docs/tech_debt.md`** (nuevo): registro plano de deuda técnica. TD-01
+  agendado: `app/utils/console.py` con `setup_utf8_console()`.
+
+- **`scripts/diagnostics/_recon_agil_check.py`** (nuevo, NO mergear a main):
+  spike S13.0a, queda en feature branch como reproductor del bug S13.1.
+
+- **`scripts/_seed_organismos_ohiggins.py`** (nuevo, NO mergear a main):
+  generador del CSV semilla. Usado para producir
+  `config/organismos_ohiggins.csv`. UTF-8 wrapper + checkpoint cada 50
+  detalles + persist-before-print.
+
+### Criterios técnicos del MVP
+
+| # | Criterio | Validación |
+|---|----------|------------|
+| 1 | Carga inicial 90d ejecutada sin errores | 4 dispatches `inteligencia_backfill_lote.yml` con exit 0 |
+| 2 | `inteligencia_precios` poblada ≥ 2.000 filas | `SELECT COUNT(*) FROM inteligencia_precios` post-lote 4 |
+| 3 | Cobertura categorización línea AIDU ≥ 70% no-Otros | `SELECT COUNT(*) WHERE linea_aidu != 'Otros'` / total |
+| 4 | Cobertura tipo_objeto 100% asignado | `SELECT COUNT(*) WHERE tipo_objeto IS NULL` = 0 |
+| 5 | Pantalla Streamlit funcional | Smoke test manual del Director post-merge |
+| 6 | Tab Productos más comprados | Smoke test manual: ranking ordenado descendente por monto_total |
+| 7 | Export Excel | Click → archivo .xlsx descarga + abre en Excel |
+| 8 | Cron diario `inteligencia_adjudicadas_diaria.yml` | Trigger manual exit 0 |
+| 9 | Re-revisión 7 días captura nuevas | `SELECT MAX(fecha_adjudicacion) FROM inteligencia_precios WHERE lote_id='cron_revision_7d'` |
+| 10 | Suite tests verde | `pytest tests/` 205/205 PASS (130 previos + 75 nuevos) |
+
+### Re-dispatch policy (cómo re-disparar un lote fallido)
+
+Si un lote del workflow `inteligencia_backfill_lote.yml` falla a mitad:
+
+1. Inspeccionar el último `[PROGRESO]` en el job log para identificar el
+   día más reciente procesado y los nuevos en Turso.
+2. Volver a disparar el workflow con **los mismos** `lote_id`, `fecha_desde`,
+   `fecha_hasta`. La UNIQUE constraint en `(codigo_mp, correlativo_item)`
+   + `INSERT OR IGNORE` garantiza idempotencia: no se duplican filas.
+3. Verificar post-dispatch:
+   ```sql
+   SELECT COUNT(*) FROM inteligencia_precios
+   WHERE fecha_adjudicacion >= '{fecha_desde}'
+     AND fecha_adjudicacion <= '{fecha_hasta}';
+   ```
+   El conteo debe estabilizarse entre runs sucesivos (lo que entró ya
+   no vuelve a entrar).
+
+### Orden de ejecución del backfill (Director)
+
+```
+Lote 1: 2026-04-30 → 2026-05-21  (más reciente, descubrir bugs primero)
+Lote 2: 2026-04-08 → 2026-04-29
+Lote 3: 2026-03-17 → 2026-04-07
+Lote 4: 2026-02-22 → 2026-03-16
+```
+
+Comando de dispatch (desde UI o `gh` CLI):
+
+```bash
+gh workflow run inteligencia_backfill_lote.yml \
+  -f lote_id=backfill_1 \
+  -f fecha_desde=2026-04-30 \
+  -f fecha_hasta=2026-05-21 \
+  -f progress_every=100
+```
+
+Validar lote 1 con éxito ANTES de disparar lote 2 (regla del Director).
+
+---
+
 ## S12.3 v2.2 — Backfill MVP 3m × 5 regiones × CA+L1+LE (2026-05)
 
 **Branch**: `feature/s12-3-v22-mvp-3m`. **Estado**: PR pendiente de merge.

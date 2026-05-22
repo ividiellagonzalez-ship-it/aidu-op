@@ -1,0 +1,70 @@
+name: Inteligencia precios - Cron diario adjudicadas
+
+# S13 - Cron incremental separado del descarga_mp_diaria.yml (D5=b).
+# Cubre adjudicaciones de los ultimos 7 dias (re-revisa el window por
+# adjudicaciones publicadas con retraso) y ejecuta auto-discovery de
+# unit_codes O'Higgins fuera del seed (--discovery-sample-size 25).
+#
+# Esquedulado a 14:00 UTC = 10/11 AM Chile, DESPUES del cron diario
+# principal (10:00 UTC) para no competir por rate limit de la API ni
+# pisar el mismo lock de Turso en escritura.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      dias_atras:
+        description: 'Dias hacia atras (default 7, max 30)'
+        required: false
+        default: '7'
+      discovery_sample_size:
+        description: 'Codigos no-seed que se peguen por dia para auto-discovery'
+        required: false
+        default: '25'
+
+permissions:
+  contents: read
+
+jobs:
+  inteligencia_diaria:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout codigo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Calcular rango (hoy - dias_atras .. hoy - 1)
+        id: rango
+        run: |
+          DIAS_ATRAS=${{ inputs.dias_atras || '7' }}
+          FECHA_HASTA=$(date -d "yesterday" +%Y-%m-%d)
+          FECHA_DESDE=$(date -d "${FECHA_HASTA} -${DIAS_ATRAS} days" +%Y-%m-%d)
+          echo "fecha_desde=$FECHA_DESDE" >> $GITHUB_OUTPUT
+          echo "fecha_hasta=$FECHA_HASTA" >> $GITHUB_OUTPUT
+          echo "Rango: $FECHA_DESDE .. $FECHA_HASTA"
+
+      - name: Ejecutar ingesta incremental
+        env:
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m scripts.cargar_inteligencia_ohiggins \
+            --fecha-desde ${{ steps.rango.outputs.fecha_desde }} \
+            --fecha-hasta ${{ steps.rango.outputs.fecha_hasta }} \
+            --lote-id cron_revision_7d \
+            --discovery-sample-size ${{ inputs.discovery_sample_size || '25' }} \
+            --progress-every 100
