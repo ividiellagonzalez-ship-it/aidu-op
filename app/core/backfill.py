@@ -7,6 +7,7 @@ Estrategias:
 3. RECONSTRUCCIÓN: re-procesar desde cache local (sin pegar API)
 """
 import logging
+import sqlite3
 import time
 from datetime import date, timedelta
 from typing import Optional
@@ -36,10 +37,22 @@ def _set_param(clave: str, valor: str):
 
 
 def _get_param(clave: str, default: str = "") -> str:
-    conn = get_connection()
+    # Fix S13 UI bug: si get_connection() o la query fallan (libsql sync
+    # transient, tabla ausente en SQLite local efimero del container
+    # Streamlit Cloud, etc.) devolvemos el default en lugar de romper.
     try:
-        row = conn.execute("SELECT valor FROM aidu_parametros WHERE clave = ?", (clave,)).fetchone()
+        conn = get_connection()
+    except Exception as e:
+        logger.warning(f"_get_param: get_connection fallo ({e}); devolviendo default")
+        return default
+    try:
+        row = conn.execute(
+            "SELECT valor FROM aidu_parametros WHERE clave = ?", (clave,)
+        ).fetchone()
         return row["valor"] if row else default
+    except sqlite3.DatabaseError as e:
+        logger.warning(f"_get_param({clave!r}): tabla ausente o BD inconsistente ({e}); default")
+        return default
     finally:
         conn.close()
 
@@ -220,21 +233,57 @@ def actualizacion_incremental(dias_lookback: int = INCREMENTAL_DAYS_LOOKBACK):
     return {"total": total, "nuevas": nuevas}
 
 
-def estado_actual():
-    """Reporte rápido del estado de la BD"""
-    conn = get_connection()
-    try:
-        n_licitaciones = conn.execute("SELECT COUNT(*) c FROM mp_licitaciones_adj").fetchone()["c"]
-        n_proyectos = conn.execute("SELECT COUNT(*) c FROM aidu_proyectos").fetchone()["c"]
-        n_ingestas = conn.execute("SELECT COUNT(*) c FROM mp_ingesta_log").fetchone()["c"]
-        n_categorizadas = conn.execute(
-            "SELECT COUNT(DISTINCT codigo_externo) c FROM mp_categorizacion_aidu"
-        ).fetchone()["c"]
+_ESTADO_VACIO = {
+    "licitaciones_historicas": 0,
+    "proyectos_cartera": 0,
+    "categorizadas_aidu": 0,
+    "ingestas_ejecutadas": 0,
+    "ultima_ingesta": None,
+    "backfill_completado": False,
+}
 
-        ultima = conn.execute("""
-            SELECT fecha_consultada, n_licitaciones_descargadas
-            FROM mp_ingesta_log ORDER BY id DESC LIMIT 1
-        """).fetchone()
+
+def estado_actual():
+    """Reporte rapido del estado de la BD.
+
+    Llamada al top-level de app/ui/streamlit_app.py para poblar el header.
+    Si esta funcion rompe, la app entera no carga (bug S13: container
+    Streamlit Cloud puede no completar la hidratacion libsql desde Turso
+    y dejar el SQLite local sin algunas tablas).
+
+    Fix: cada query queda envuelta en try/except y devolvemos default 0.
+    Tolera tablas ausentes, conexion caida, libsql sync transient, etc.
+    La UI se renderiza con conteos en 0 mientras Turso se recupera o el
+    siguiente cold start aplica las migraciones correctamente.
+    """
+    try:
+        conn = get_connection()
+    except Exception as e:
+        logger.warning(f"estado_actual: get_connection fallo ({e}); estado vacio")
+        return dict(_ESTADO_VACIO)
+
+    def _safe_count(sql: str) -> int:
+        try:
+            row = conn.execute(sql).fetchone()
+            return row["c"] if row else 0
+        except sqlite3.DatabaseError as e:
+            logger.warning(f"estado_actual: {sql!r} fallo ({e}); usando 0")
+            return 0
+
+    try:
+        n_licitaciones = _safe_count("SELECT COUNT(*) c FROM mp_licitaciones_adj")
+        n_proyectos = _safe_count("SELECT COUNT(*) c FROM aidu_proyectos")
+        n_ingestas = _safe_count("SELECT COUNT(*) c FROM mp_ingesta_log")
+        n_categorizadas = _safe_count(
+            "SELECT COUNT(DISTINCT codigo_externo) c FROM mp_categorizacion_aidu"
+        )
+        try:
+            ultima = conn.execute("""
+                SELECT fecha_consultada, n_licitaciones_descargadas
+                FROM mp_ingesta_log ORDER BY id DESC LIMIT 1
+            """).fetchone()
+        except sqlite3.DatabaseError:
+            ultima = None
 
         backfill = _get_param("backfill_completado", "0") == "1"
 
