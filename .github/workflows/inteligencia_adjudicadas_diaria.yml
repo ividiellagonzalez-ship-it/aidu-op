@@ -46,6 +46,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Aplicar migraciones a Turso (FIX S13)
+        # Defensa: el CLI tambien valida y aplica migraciones por su cuenta,
+        # pero correrlas aca explicitamente acorta el blast-radius de fallos
+        # silenciosos y deja un registro visible en el step log.
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -c "
+          from app.db.migrator import run_migrations
+          n, applied = run_migrations()
+          print(f'Migraciones aplicadas en este run: {n}')
+          for m in applied:
+              print(f'  - {m}')
+          "
+
       - name: Calcular rango (hoy - dias_atras .. hoy - 1)
         id: rango
         run: |

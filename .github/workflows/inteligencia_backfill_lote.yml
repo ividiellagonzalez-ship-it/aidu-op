@@ -1,40 +1,62 @@
 name: Inteligencia precios - Backfill por lote
 
-# S13 - Backfill controlado de inteligencia_precios en lotes de ~22 dias.
-# 4 dispatches manuales cubren el window de 90 dias:
-#   Lote 1: 2026-04-30 .. 2026-05-21  (mas reciente; usar primero para
-#                                       descubrir bugs en datos frescos)
-#   Lote 2: 2026-04-08 .. 2026-04-29
-#   Lote 3: 2026-03-17 .. 2026-04-07
-#   Lote 4: 2026-02-22 .. 2026-03-16
+# S13 - Backfill controlado de inteligencia_precios en lotes cortos.
+# 12 dispatches manuales (alternando 7 y 8 dias) cubren el window de 90 dias.
 #
-# Cada lote ~3.5h con buffer de 2.5h sobre el limite 6h por job.
+# Esquema de 12 lotes (revisado S13-fix tras crash de Lote 1 con 22d):
+#   Lote 1:  2026-05-15 .. 2026-05-21  (7d, mas reciente, usar primero)
+#   Lote 2:  2026-05-07 .. 2026-05-14  (8d)
+#   Lote 3:  2026-04-30 .. 2026-05-06  (7d)
+#   Lote 4:  2026-04-22 .. 2026-04-29  (8d)
+#   Lote 5:  2026-04-15 .. 2026-04-21  (7d)
+#   Lote 6:  2026-04-07 .. 2026-04-14  (8d)
+#   Lote 7:  2026-03-31 .. 2026-04-06  (7d)
+#   Lote 8:  2026-03-23 .. 2026-03-30  (8d)
+#   Lote 9:  2026-03-16 .. 2026-03-22  (7d)
+#   Lote 10: 2026-03-08 .. 2026-03-15  (8d)
+#   Lote 11: 2026-03-01 .. 2026-03-07  (7d)
+#   Lote 12: 2026-02-21 .. 2026-02-28  (8d)
+#
+# Total: 90 dias contiguos, sin gap ni overlap.
+# Cada lote ~10-15 min wall clock (con filtro unit_code, ~25 calls/dia).
+# Beneficios vs el plan inicial de 4 x 22d:
+#   - Si un lote falla, perdemos ~10 min en vez de ~3.5h
+#   - 12 checkpoints naturales de validacion
+#   - Cuota GH Actions total similar (~2-3 horas vs ~14 horas)
+#
 # Idempotente via INSERT OR IGNORE en (codigo_mp, correlativo_item):
 #   re-disparar un lote fallido con MISMOS fecha_desde + fecha_hasta NO duplica.
 #
 # Re-dispatch policy (ver docs/changelog.md):
-# - Para reintentar un lote fallido: workflow_dispatch con los mismos inputs.
+# - Reintento de lote fallido: workflow_dispatch con los MISMOS inputs.
 # - Verificar post-dispatch:
 #       SELECT COUNT(*) FROM inteligencia_precios
-#       WHERE fecha_adjudicacion >= '{fecha_desde}'
-#         AND fecha_adjudicacion <= '{fecha_hasta}';
+#       WHERE fecha_adjudicacion BETWEEN '{fecha_desde}' AND '{fecha_hasta}';
+#
+# FIX S13.x (causa raiz del crash inicial del Lote 1):
+# - El step "Aplicar migraciones a Turso" garantiza que la 009 (y futuras)
+#   esten aplicadas en Turso antes de que el CLI intente INSERTar.
+# - El cron diario descarga_mp_diaria.yml NO aplica migraciones (asume que
+#   ya fueron aplicadas via Streamlit Cloud cold start). Esa asuncion falla
+#   para los nuevos workflows S13 porque pueden correr antes de cualquier
+#   cold start del UI. Por eso este workflow las aplica explicitamente.
 #
 # Monitoreo del job:
 # - El script imprime [PROGRESO] cada 100 detalles a stdout (visible en
-#   la pestaña Actions). Si pasan > 10 min sin nueva linea, asumir trabazon
+#   la pestaña Actions). Si pasan > 5 min sin nueva linea, asumir trabazon
 #   y abortar manualmente con Cancel workflow.
 
 on:
   workflow_dispatch:
     inputs:
       lote_id:
-        description: 'Tag del lote (ej: backfill_1, backfill_2, ...)'
+        description: 'Tag del lote (ej: backfill_1, backfill_2, ... backfill_12)'
         required: true
         default: 'backfill_1'
       fecha_desde:
         description: 'ISO YYYY-MM-DD'
         required: true
-        default: '2026-04-30'
+        default: '2026-05-15'
       fecha_hasta:
         description: 'ISO YYYY-MM-DD'
         required: true
@@ -50,9 +72,9 @@ permissions:
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    # 350 min = 5h50m. Buffer de 10 min sobre la duracion esperada (~3.5h)
-    # y a 10 min del limite hard de GH Actions (6h = 360 min).
-    timeout-minutes: 350
+    # 60 min cubre con holgura un lote de 7-8 dias (~10-15 min reales).
+    # Reducido de 350 min (4-lote plan) porque ahora cada lote es chico.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout codigo
@@ -68,6 +90,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Aplicar migraciones a Turso (FIX S13)
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -c "
+          from app.db.migrator import run_migrations
+          n, applied = run_migrations()
+          print(f'Migraciones aplicadas en este run: {n}')
+          for m in applied:
+              print(f'  - {m}')
+          "
 
       - name: Pre-flight check (dry-run)
         env:
