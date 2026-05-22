@@ -3,6 +3,95 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13-fix — Migración Turso explícita + lotes cortos (2026-05)
+
+**Branch**: `fix/s13-migracion-turso-y-lotes-cortos`. **Estado**: PR pendiente.
+**Origen**: el primer dispatch de S13 (Lote 1, 22 días) crasheó a los 12m 58s con
+`TursoUnavailableError: no such table: inteligencia_precios`. La migración 009
+había quedado aplicada solo en SQLite local, NO en Turso productivo.
+
+### Causa raíz
+
+`run_migrations()` aplica DDL idempotente a SQLite local Y a Turso vía
+`/v2/pipeline` cuando hay credenciales. Pero **ningún workflow lo invoca
+explícitamente**: `descarga_mp_diaria.yml` corre `python -m app.core.descarga_diaria`
+directo, asumiendo que el schema ya está aplicado. La asunción se cumplía
+históricamente porque Streamlit Cloud cold-start ejecuta `_ensure_migrations_applied()`
+y poblaba Turso para las migraciones nuevas. Para los workflows S13, el dispatch
+manual del backfill puede correr ANTES de cualquier cold-start del UI → la
+migración 009 nunca llegó a Turso.
+
+### Cambios por archivo
+
+- **`.github/workflows/inteligencia_backfill_lote.yml`** (modificado):
+  - Step nuevo `Aplicar migraciones a Turso (FIX S13)` antes del pre-flight.
+    Llama `run_migrations()` con `TURSO_*` env vars. Idempotente: si ya
+    aplicadas, no-op silencioso.
+  - Defaults de los inputs actualizados al nuevo Lote 1 (7 días).
+  - `timeout-minutes: 350` → `60` (los lotes ahora son chicos).
+  - Header doc rewrite con tabla de 12 lotes.
+
+- **`.github/workflows/inteligencia_adjudicadas_diaria.yml`** (modificado):
+  - Mismo step de migraciones aplicado al cron diario, por consistencia.
+    El CLI ya tiene su propio guard, pero el step explícito acorta el
+    blast-radius de fallos silenciosos.
+
+- **`scripts/cargar_inteligencia_ohiggins.py`** (modificado):
+  - `_verificar_o_aplicar_migraciones()`: nuevo guard que consulta
+    `sqlite_master` en Turso, verifica que existen `inteligencia_precios`
+    y `organismos_ohiggins_auto`, intenta `run_migrations()` si faltan,
+    y aborta con exit 2 si tras eso siguen faltando.
+  - Llamado en `main()` justo después de validar `MP_TICKET`.
+  - Soporta el modo `--dry-run`: si todo OK, el dry-run reporta también
+    que las tablas críticas están presentes.
+
+- **`docs/changelog.md`** (esta entrada).
+
+### Esquema revisado de lotes: 4×22d → 12×7-8d
+
+Razones para el cambio:
+- Si un lote falla, perdemos ~10-15 min en vez de ~3.5h.
+- 12 checkpoints naturales de validación operacional.
+- Mismo total de trabajo (cuota GH Actions ≤ 14h).
+- Recuperación de un lote fallido es trivial (re-dispatch en ~minutos).
+
+Distribución alternada 7/8 días (90 días totales, contiguos, sin gap ni overlap):
+
+| # | Días | Fecha desde | Fecha hasta |
+|---|------|-------------|-------------|
+| 1  | 7 | 2026-05-15 | 2026-05-21 |
+| 2  | 8 | 2026-05-07 | 2026-05-14 |
+| 3  | 7 | 2026-04-30 | 2026-05-06 |
+| 4  | 8 | 2026-04-22 | 2026-04-29 |
+| 5  | 7 | 2026-04-15 | 2026-04-21 |
+| 6  | 8 | 2026-04-07 | 2026-04-14 |
+| 7  | 7 | 2026-03-31 | 2026-04-06 |
+| 8  | 8 | 2026-03-23 | 2026-03-30 |
+| 9  | 7 | 2026-03-16 | 2026-03-22 |
+| 10 | 8 | 2026-03-08 | 2026-03-15 |
+| 11 | 7 | 2026-03-01 | 2026-03-07 |
+| 12 | 8 | 2026-02-21 | 2026-02-28 |
+
+**Total: 90 días.** El Director dispara los 12 lotes en serie (mismo día está OK),
+validando cada uno antes de pasar al siguiente.
+
+### Re-dispatch del Lote 1 (post-merge de S13-fix)
+
+```bash
+gh workflow run inteligencia_backfill_lote.yml \
+  --ref main \
+  -f lote_id=backfill_1 \
+  -f fecha_desde=2026-05-15 \
+  -f fecha_hasta=2026-05-21 \
+  -f progress_every=100
+```
+
+Idempotente: si quedaron filas de un intento previo del Lote 1 con la fecha
+range vieja (22d), no hay conflicto — el rango cambió y la UNIQUE en
+`(codigo_mp, correlativo_item)` previene duplicados.
+
+---
+
 ## S13 — MVP Inteligencia de Mercado · O'Higgins (2026-05)
 
 **Branch**: `feature/s13-inteligencia-mercado-ohiggins`. **Estado**: PR pendiente.

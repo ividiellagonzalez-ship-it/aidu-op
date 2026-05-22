@@ -153,6 +153,71 @@ def _hacer_progress_logger(total_dias: int, eta_baseline_seg_por_detalle: float 
     return cb
 
 
+TABLAS_CRITICAS = ("inteligencia_precios", "organismos_ohiggins_auto")
+
+
+def _verificar_o_aplicar_migraciones() -> int:
+    """Side-fix preventivo (S13-fix):
+
+    Verifica que las tablas criticas existan en Turso. Si faltan, llama
+    a run_migrations() para intentar aplicarlas. Si tras eso siguen
+    faltando, devuelve exit code != 0 con mensaje claro.
+
+    Este guard previene re-disparar el bug que tumbo el Lote 1 inicial
+    (TursoUnavailableError: no such table: inteligencia_precios) en
+    futuros workflows / ad-hoc runs donde alguien olvide aplicar la
+    migracion primero.
+    """
+    try:
+        rows = turso_http_client.query_all(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('inteligencia_precios', 'organismos_ohiggins_auto')"
+        )
+    except Exception as e:
+        logger.error("No pude consultar sqlite_master en Turso: %s", e)
+        return 2
+
+    tablas_presentes = {r[0] for r in rows} if rows else set()
+    faltantes = [t for t in TABLAS_CRITICAS if t not in tablas_presentes]
+    if not faltantes:
+        print(f"Guard: tablas criticas presentes en Turso ({list(tablas_presentes)})")
+        return 0
+
+    logger.warning(
+        "Guard: tablas faltantes en Turso: %s. Intento run_migrations()...",
+        faltantes,
+    )
+    try:
+        from app.db.migrator import run_migrations
+        n, applied = run_migrations()
+        print(f"Guard: run_migrations() aplico {n} migraciones: {applied}")
+    except Exception as e:
+        logger.error("Guard: run_migrations() fallo: %s", e)
+        return 2
+
+    # Re-chequear: si todavia faltan tablas, abortar con mensaje claro
+    try:
+        rows = turso_http_client.query_all(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('inteligencia_precios', 'organismos_ohiggins_auto')"
+        )
+        tablas_presentes = {r[0] for r in rows} if rows else set()
+    except Exception as e:
+        logger.error("Re-chequeo post-migraciones fallo: %s", e)
+        return 2
+
+    faltantes_post = [t for t in TABLAS_CRITICAS if t not in tablas_presentes]
+    if faltantes_post:
+        logger.error(
+            "Guard: tras run_migrations(), siguen faltando tablas: %s. "
+            "Aplicar manualmente la migracion 009 contra Turso antes de continuar.",
+            faltantes_post,
+        )
+        return 2
+    print(f"Guard: tablas criticas creadas via run_migrations(): {faltantes}")
+    return 0
+
+
 def _print_stats_final(stats: StatsCorrida) -> None:
     print()
     print("=" * 60)
@@ -212,9 +277,15 @@ def main() -> int:
         logger.error("MP_TICKET no cargado o placeholder.")
         return 1
 
+    # Guard de tablas criticas (side-fix S13-fix).
+    # Si faltan, intenta run_migrations(); si siguen faltando, aborta.
+    guard_exit = _verificar_o_aplicar_migraciones()
+    if guard_exit != 0:
+        return guard_exit
+
     if args.dry_run:
         print()
-        print("[DRY-RUN] Config OK. No se ingirio nada.")
+        print("[DRY-RUN] Config OK + tablas criticas verificadas. No se ingirio nada.")
         return 0
 
     total_dias = (fecha_hasta - fecha_desde).days + 1
