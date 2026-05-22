@@ -1,0 +1,147 @@
+name: '[CHORE] Truncate Lote 1 (TEMPORAL)'
+
+# TEMPORAL - one-shot para borrar las 191 filas de inteligencia_precios
+# con lote_id='backfill_1' antes del re-dispatch del Lote 1 con el
+# diccionario v1 de 22 keywords nuevas.
+#
+# Motivo: el dashboard UI de Turso esta caido para la database
+# productiva. Necesitamos correr 3 SQL (verificar / DELETE / verificar)
+# desde un canal alternativo. GH Actions usa los mismos TURSO_*
+# secrets que el cron diario.
+#
+# Comportamiento idempotente: si lote_id='backfill_1' ya tiene 0 filas,
+# el DELETE es no-op y el job sigue exit 0.
+#
+# CLEANUP: este workflow y este archivo se borran en un PR aparte
+# despues del dispatch exitoso.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  truncate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Truncate lote_id='backfill_1' con verificaciones pre y post
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -c "
+          import sys
+          from app.db import turso_http_client
+          from app.db._hrana_types import arg_for_value
+
+          LOTE = 'backfill_1'
+
+          if not turso_http_client.is_configured():
+              print('ERROR: TURSO_DATABASE_URL + TURSO_AUTH_TOKEN no configurados.')
+              sys.exit(2)
+
+          # ============================================================
+          # PASO 1: verificacion previa - cuantas filas por lote_id
+          # ============================================================
+          print('=' * 60)
+          print('PASO 1 - Verificacion previa: distribucion por lote_id')
+          print('=' * 60)
+          rows = turso_http_client.query_all(
+              'SELECT lote_id, COUNT(*) AS n FROM inteligencia_precios '
+              'GROUP BY lote_id ORDER BY lote_id'
+          )
+          if not rows:
+              print('(tabla vacia o sin lote_id)')
+          n_backfill_1 = 0
+          for r in rows:
+              lote, n = r[0], r[1]
+              marker = '  <-- TARGET DELETE' if lote == LOTE else ''
+              print(f'  {lote!r}: {n}{marker}')
+              if lote == LOTE:
+                  n_backfill_1 = n
+          print()
+
+          if n_backfill_1 == 0:
+              print(f'No hay filas con lote_id={LOTE!r}. DELETE seria no-op.')
+              print('El job continua para confirmar idempotencia, pero no')
+              print('borrara nada.')
+              print()
+
+          # ============================================================
+          # PASO 2: DELETE
+          # ============================================================
+          print('=' * 60)
+          print(f'PASO 2 - DELETE FROM inteligencia_precios WHERE lote_id = {LOTE!r}')
+          print('=' * 60)
+          results = turso_http_client.execute_pipeline([
+              {
+                  'sql': 'DELETE FROM inteligencia_precios WHERE lote_id = ?',
+                  'args': [arg_for_value(LOTE)],
+              }
+          ])
+          # Extraer affected_row_count del result Hrana
+          affected = None
+          for res in results:
+              if res.get('type') == 'ok':
+                  resp = res.get('response', {})
+                  inner = resp.get('result') if isinstance(resp, dict) else None
+                  if isinstance(inner, dict):
+                      arc = inner.get('affected_row_count')
+                      if arc is not None:
+                          affected = arc
+                          break
+          print(f'  affected_row_count = {affected}')
+          if affected is None:
+              print('  (Turso no devolvio affected_row_count; verificamos via COUNT post-DELETE)')
+          print()
+
+          # ============================================================
+          # PASO 3: verificacion post-DELETE (debe ser 0)
+          # ============================================================
+          print('=' * 60)
+          print('PASO 3 - Verificacion post-DELETE: COUNT(*) debe ser 0')
+          print('=' * 60)
+          rows = turso_http_client.query_all(
+              'SELECT COUNT(*) FROM inteligencia_precios WHERE lote_id = ?',
+              [arg_for_value(LOTE)],
+          )
+          n_post = rows[0][0] if rows else 0
+          print(f'  COUNT(*) WHERE lote_id = {LOTE!r}: {n_post}')
+          print()
+
+          # ============================================================
+          # PASO 4: distribucion final por lote_id
+          # ============================================================
+          print('=' * 60)
+          print('PASO 4 - Estado final: distribucion por lote_id')
+          print('=' * 60)
+          rows = turso_http_client.query_all(
+              'SELECT lote_id, COUNT(*) AS n FROM inteligencia_precios '
+              'GROUP BY lote_id ORDER BY lote_id'
+          )
+          if not rows:
+              print('  (tabla vacia)')
+          for r in rows:
+              print(f'  {r[0]!r}: {r[1]}')
+          print()
+
+          if n_post != 0:
+              print(f'FALLO: post-DELETE COUNT = {n_post}, esperado 0.')
+              sys.exit(1)
+
+          print('OK: DELETE de lote_id={LOTE!r} completo. Listo para re-dispatch del Lote 1.'.format(LOTE=LOTE))
+          "
