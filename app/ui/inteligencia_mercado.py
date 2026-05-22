@@ -26,13 +26,54 @@ materializadas (spec D3 + sec 2.3).
 from __future__ import annotations
 
 import io
+import logging
+import os
 from datetime import date, timedelta
 from typing import List, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
 
+from app.db import turso_http_client
+from app.db._hrana_types import arg_for_value
 from app.db.migrator import get_connection
+
+logger = logging.getLogger(__name__)
+
+
+# Columnas en orden estricto para zipear los resultados de Turso a un DataFrame.
+# Cualquier cambio aqui debe replicarse en el SELECT de _cargar_inteligencia_precios.
+_COLS_INTELIGENCIA = [
+    "id_item", "codigo_mp", "correlativo_item", "fecha_adjudicacion",
+    "tipo_licitacion", "organismo_comprador", "unit_code",
+    "organismo_region", "region_entrega", "producto_descripcion",
+    "unidad_medida", "cantidad", "precio_unitario", "monto_total",
+    "proveedor_nombre", "proveedor_rut", "n_oferentes",
+    "linea_aidu", "tipo_objeto", "keywords_matched", "lote_id",
+]
+
+
+def _modo_produccion() -> bool:
+    """True si la app debe leer datos via turso_http_client (HTTP) en lugar
+    de get_connection() (libsql + SQLite local).
+
+    Detection explicita por env var TURSO_DATABASE_URL: en produccion
+    Streamlit Cloud SIEMPRE esta seteada (sino el cron diario tampoco
+    funcionaria). Si esta variable existe, el data layer NUNCA cae al
+    fallback de SQLite local, aunque turso_http_client.is_configured()
+    devuelva False por algun bug de carga de credenciales.
+
+    Tambien acepta st.secrets para corridas en Streamlit Cloud antes de
+    que config.settings._load_env() haya inyectado las creds al env.
+    """
+    if os.getenv("TURSO_DATABASE_URL"):
+        return True
+    try:
+        if hasattr(st, "secrets") and st.secrets.get("TURSO_DATABASE_URL"):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 # ============================================================
@@ -47,38 +88,76 @@ TIPOS_OBJETO = ["producto", "servicio", "hibrido"]
 # QUERIES (data layer)
 # ============================================================
 
+_SELECT_INTELIGENCIA = (
+    "SELECT id_item, codigo_mp, correlativo_item, fecha_adjudicacion, "
+    "       tipo_licitacion, organismo_comprador, unit_code, "
+    "       organismo_region, region_entrega, producto_descripcion, "
+    "       unidad_medida, cantidad, precio_unitario, monto_total, "
+    "       proveedor_nombre, proveedor_rut, n_oferentes, "
+    "       linea_aidu, tipo_objeto, keywords_matched, lote_id "
+    "  FROM inteligencia_precios "
+    " WHERE fecha_adjudicacion BETWEEN ? AND ?"
+)
+
+
 @st.cache_data(ttl=300)
 def _cargar_inteligencia_precios(
     fecha_desde_iso: str,
     fecha_hasta_iso: str,
 ) -> pd.DataFrame:
-    """Trae todas las filas del rango. Cache 5 min para evitar hits a Turso
-    en cada interaccion del usuario.
-    Devuelve DataFrame vacio si la tabla no existe (mig 009 no aplicada)."""
-    conn = get_connection()
+    """Trae todas las filas del rango.
+
+    Cache 5 min para evitar hits a Turso en cada interaccion del usuario.
+
+    Data layer (S13.2):
+      - PRODUCCION (TURSO_DATABASE_URL seteada): consulta directa via
+        turso_http_client.query_all() sobre /v2/pipeline. Bypasa libsql,
+        bypasa el SQLite local del container (que puede estar corrupto
+        o sin schema en Streamlit Cloud), va directo al Turso productivo.
+      - DEV/CI (sin TURSO_DATABASE_URL): fallback a get_connection() para
+        que los tests y el desarrollo local sigan funcionando.
+
+    Devuelve DataFrame vacio si Turso falla o la migracion 009 no esta
+    aplicada. No crashea la UI en ningun caso.
+    """
+    if _modo_produccion():
+        try:
+            rows = turso_http_client.query_all(
+                _SELECT_INTELIGENCIA,
+                [arg_for_value(fecha_desde_iso), arg_for_value(fecha_hasta_iso)],
+            )
+        except Exception as e:
+            logger.warning("inteligencia_mercado: turso_http_client fallo (%s)", e)
+            st.warning(
+                f"No se pudo leer inteligencia_precios desde Turso ({e}). "
+                "Revisar logs y conectividad a /v2/pipeline."
+            )
+            return pd.DataFrame(columns=_COLS_INTELIGENCIA)
+        # rows es lista de listas (Hrana value-extracted). Mapear a DataFrame.
+        return pd.DataFrame(rows, columns=_COLS_INTELIGENCIA)
+
+    # DEV/CI: fallback a SQLite local via get_connection().
+    # NO se entra aca en produccion: la deteccion explicita por
+    # TURSO_DATABASE_URL impide caer al SQLite corrupto.
     try:
-        cur = conn.execute(
-            """
-            SELECT id_item, codigo_mp, correlativo_item, fecha_adjudicacion,
-                   tipo_licitacion, organismo_comprador, unit_code,
-                   organismo_region, region_entrega, producto_descripcion,
-                   unidad_medida, cantidad, precio_unitario, monto_total,
-                   proveedor_nombre, proveedor_rut, n_oferentes,
-                   linea_aidu, tipo_objeto, keywords_matched, lote_id
-              FROM inteligencia_precios
-             WHERE fecha_adjudicacion BETWEEN ? AND ?
-            """,
-            (fecha_desde_iso, fecha_hasta_iso),
-        )
-        cols = [d[0] for d in cur.description]
-        rows = cur.fetchall()
-        return pd.DataFrame(rows, columns=cols)
+        conn = get_connection()
+        try:
+            cur = conn.execute(
+                _SELECT_INTELIGENCIA,
+                (fecha_desde_iso, fecha_hasta_iso),
+            )
+            cols = [d[0] for d in cur.description]
+            db_rows = cur.fetchall()
+            return pd.DataFrame(db_rows, columns=cols)
+        finally:
+            conn.close()
     except Exception as e:
+        logger.warning("inteligencia_mercado fallback get_connection fallo (%s)", e)
         st.warning(
             f"No se pudo leer inteligencia_precios ({e}). "
             "Verificar que la migracion 009 este aplicada."
         )
-        return pd.DataFrame()
+        return pd.DataFrame(columns=_COLS_INTELIGENCIA)
 
 
 # ============================================================
