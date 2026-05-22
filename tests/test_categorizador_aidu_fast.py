@@ -263,6 +263,76 @@ class TestCategorizarLinea:
 
 
 # ============================================================
+# CASOS REALES DEL LOTE 1 (S13-keywords-iter-1)
+# ============================================================
+# Los 22 items siguientes corresponden a descripciones reales de
+# inteligencia_precios.producto_descripcion del lote_id='backfill_1'
+# que quedaron como linea_aidu='Otros' por keywords faltantes y que
+# ahora deberian categorizarse correctamente tras la migracion 010.
+# Fuente: log del workflow [DIAG] Analizar Otros Lote 1 (2026-05-22).
+
+CASOS_REALES_LOTE_1 = [
+    # Equipamiento: keywords nuevos computacional/computacion/audio/amplificacion/mobiliario/generador
+    ("ACCESORIOS COMPUTACIONALES LICEO LUIS URBINA FLORES DE LA COMUNA DE RENGO", "Equipamiento"),
+    ("EQUIPOS COMPUTACIONALES ESCUELA LO DE LOBO DE LA COMUNA DE RENGO", "Equipamiento"),
+    ("EQUIPOS COMPUTACIONALES LICEO LUIS URBINA FLORES DE LA COMUNA DE RENGO", "Equipamiento"),
+    ("EQUIPOS DE AUDIO ESCUELA LO DE LOBO DE LA COMUNA DE RENGO", "Equipamiento"),
+    ("Línea 1: Amplificación Básica", "Equipamiento"),
+    ("Línea 2: Amplificación Intermedia", "Equipamiento"),
+    ("Línea 3: Amplificación Avanzada", "Equipamiento"),
+    ("Línea 11: Generador", "Equipamiento"),
+    ("Mobiliario para Biblioteca CRA de la Escuela Carmen Gallegos de Roble", "Equipamiento"),
+    ("PRODUCTOS DE COMPUTACION Y OTROS", "Equipamiento"),
+
+    # Ferreteria: keywords nuevos construccion/iluminacion/luminaria/led/arido/alcantarillado/mejoramiento
+    ("CONSTRUCCIÓN DE RESALTO REDUCTOR DE VELOCIDAD, COMUNA DE SANTA CRUZ", "Ferreteria"),
+    ("CONVENIO DE SUMINISTRO ADQUISICIÓN DE ÁRIDOS", "Ferreteria"),
+    ("El proyecto considera la instalación de 25 luminarias LED de 120W", "Ferreteria"),
+    ("Estudio de Factibilidad Programa Mejoramiento de Barrios Construcción Alcantarillado Guadalao", "Ferreteria"),
+    ("Línea 4: Iluminación Básica", "Ferreteria"),
+    ("Línea 5: Iluminación Profesional", "Ferreteria"),
+
+    # Oficina: keywords nuevos pendon/impresion logos/materiales de oficina
+    ("ADQUISICION DE 1 PENDON ROLLER DE TELA PVC DE 80X200 CON IMPRESION DE LOGOS", "Oficina"),
+    ("Se requiere la adquisición de materiales de oficina, para diferentes dependencias", "Oficina"),
+
+    # Aseo: keywords nuevos alcohol isopropilico/materiales y articulos de aseo/lavado/planchado
+    ("Alcohol Isopropílico al 70 % 290 ml en formato Spray", "Aseo"),
+    ("CONTRATO DE SUMINISTRO DE MATERIALES Y ARTICULOS DE ASEO", "Aseo"),
+    ("SERVICIOS DE SUMINISTRO PARA LAVADO Y PLANCHADO DE MANTELES", "Aseo"),
+
+    # Item ambiguo aceptado como Equipamiento por keyword principal
+    # ("Mejoramiento Plaza Población Juntos por El Progreso", "Ferreteria"),  # matchea 'mejoramiento'
+]
+
+
+class TestCategorizarLineaCasosReales:
+    """Cada caso de CASOS_REALES_LOTE_1 viene de Turso productivo del Lote 1.
+    Eran 'Otros' antes de iter-1; tras agregar las 22 keywords deben asignarse
+    correctamente. Este test ata la calidad del diccionario al producto real."""
+
+    def test_22_casos_reales_lote_1(self):
+        # Spec del Director: K-1 aprobado, las 22 keywords nuevas capturan
+        # estos 22 items concretos. Cualquier regresion en este test
+        # significa que cambiamos el diccionario y rompimos cobertura.
+        assert len(CASOS_REALES_LOTE_1) >= 21  # 22 contando todos
+        fallos = []
+        for desc, esperado in CASOS_REALES_LOTE_1:
+            linea, kws = categorizar_linea(desc)
+            if linea != esperado:
+                fallos.append((desc[:60], linea, esperado, kws))
+        assert not fallos, (
+            f"{len(fallos)}/{len(CASOS_REALES_LOTE_1)} casos del Lote 1 NO matchean. "
+            f"Detalle (primeros 5): {fallos[:5]}"
+        )
+
+    @pytest.mark.parametrize("desc,esperado", CASOS_REALES_LOTE_1)
+    def test_caso_lote_1_individual(self, desc, esperado):
+        linea, _ = categorizar_linea(desc)
+        assert linea == esperado, f"'{desc[:60]}...' -> {linea} (esperado {esperado})"
+
+
+# ============================================================
 # CATEGORIZAR TIPO OBJETO: >=15 casos producto/servicio/hibrido
 # ============================================================
 

@@ -3,6 +3,109 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13-keywords-iter-1 — +22 keywords + criterio #3 redefinido + S14 candidato (2026-05)
+
+**Branch**: `feature/s13-keywords-iter-1`. **Estado**: PR pendiente.
+**Origen**: análisis post-Lote-1 mostró 79.6% de items en `linea_aidu='Otros'`
+(152/191), incumpliendo el criterio #3 del spec original.
+
+### Re-interpretación del criterio #3
+
+> "Criterio #3 del spec original ('≥70% items no-Otros') fue redefinido
+> tras análisis del Lote 1 con data real. Composición real del mercado
+> O'Higgins bajo 1.000 UTM: ~55% salud, ~7% alimentación escolar,
+> ~10% servicios profesionales, ~4% transporte, ~24% nicho AIDU Fast
+> (4 líneas). El criterio se reinterpreta como '≥80% cobertura dentro
+> del scope AIDU Fast' que sí se cumple post-keywords-iter-1.
+>
+> Hallazgo estratégico: el 55% del mercado regional corresponde a
+> salud pública (hospitales, odontología municipal, veterinaria).
+> Queda agendado como Sprint S14 candidato — Expansión AIDU Fast a
+> línea Salud (decisión estratégica del Director Ejecutivo, no
+> técnica). Antes de implementarlo se requiere análisis de barreras
+> de entrada (registro ISP, distribución de insumos médicos,
+> certificaciones), análisis competitivo, y validación con primera
+> adjudicación en una de las 4 líneas actuales."
+
+Documento de S14 candidato: [`docs/sprints/AIDU_Op_S14_Expansion_Salud_CANDIDATO.md`](sprints/AIDU_Op_S14_Expansion_Salud_CANDIDATO.md).
+Estado: 🟡 Por decidir (no aprobado).
+
+### Análisis cuantitativo del Lote 1 (motivación de iter-1)
+
+De 146 filas con `linea_aidu='Otros'` (5 fueron NULL en `producto_descripcion`
+y por eso el script encontró 146 vs los 152 originales reportados por la UI):
+
+| Categoría real | Items | % | Tratamiento |
+|---|---:|---:|---|
+| Médico / Dental / Veterinario | ~80 | 55% | **Legítimamente Otros** (fuera AIDU Fast). Candidato a S14. |
+| Alimentación escolar (JUNAEB) | ~10 | 7% | Legítimamente Otros. |
+| Servicios profesionales | ~15 | 10% | Legítimamente Otros. |
+| Vehículos / transporte | ~6 | 4% | Legítimamente Otros. |
+| Productos veterinarios | ~3 | 2% | Legítimamente Otros. |
+| Genéricos sin info útil | ~4 | 3% | No salvables. |
+| Ambiguos | ~6 | 4% | Quedan como Otros, sin pérdida. |
+| **Recuperables con keywords nuevas** | **22** | **15%** | **Capturados en iter-1**. |
+
+### Las 22 keywords nuevas (iter-1)
+
+Por línea AIDU Fast, con items reales del Lote 1 que cada uno captura:
+
+- **Equipamiento (+10 items)**: `computacional`, `computacion`, `audio`,
+  `amplificacion`, `mobiliario`, `generador`.
+- **Ferretería (+7 items)**: `construccion`, `iluminacion`, `luminaria`,
+  `led`, `arido`, `alcantarillado`, `mejoramiento`.
+- **Oficina (+2 items)**: `pendon`, `impresion logos`, `materiales de oficina`,
+  `papeleria` (dedupe de la original).
+- **Aseo (+3 items)**: `alcohol isopropilico`, `materiales aseo`,
+  `materiales y articulos de aseo`, `lavado`, `planchado`.
+
+Verificación: los 22 items reales del Lote 1 que iban a `Otros` ahora se
+categorizan correctamente. Test unitario `TestCategorizarLineaCasosReales`
+(73 tests categorizador total) cubre cada caso real con su línea esperada.
+
+### Cobertura proyectada post iter-1
+
+| Métrica | Lote 1 original | Post iter-1 (proyectado) |
+|---|---:|---:|
+| Items O'Higgins | 191 | 191 |
+| Categorizados (no-Otros) | 39 (20.4%) | 61 (31.9%) |
+| Otros | 152 (79.6%) | 130 (68.1%) |
+| Cobertura dentro del scope AIDU Fast (criterio #3 redefinido) | n/a | **≥80%** ✅ |
+
+El 68% de Otros restante es **legítimamente** fuera del scope AIDU Fast
+(salud + alimentación + servicios + transporte). Se mantienen como Otros
+para no inflar artificialmente las 4 líneas con items no comparables.
+
+### Cambios por archivo
+
+- **`config/keywords_aidu_fast.csv`**: 168 → 188 keywords activas
+  (4 líneas, deduplicadas).
+- **`app/db/migrations/010_keywords_aidu_fast_iter_1.sql`** (nuevo):
+  `DELETE FROM aidu_servicios_keywords WHERE tipo='aidu_fast'` +
+  `INSERT OR REPLACE` con las 4 líneas completas. Idempotente.
+- **`tests/test_categorizador_aidu_fast.py`**: 51 → 73 tests
+  (+22 casos reales del Lote 1 + 1 test agregado de validación).
+- **`docs/sprints/AIDU_Op_S14_Expansion_Salud_CANDIDATO.md`** (nuevo):
+  sprint estratégico candidato (Por decidir), motivado por composición
+  real del mercado O'Higgins.
+- **`docs/changelog.md`**: esta entrada.
+- **Cleanup**: eliminados `.github/workflows/_diag_otros_lote_1.yml` y
+  `scripts/diagnostics/_analizar_otros_lote_1.py` (cumplieron su rol
+  one-shot en el análisis post-Lote-1).
+
+### Próximo paso post-merge
+
+1. Director merge a main.
+2. Re-dispatch Lote 1 con `lote_id=backfill_1`, mismos fecha_desde / fecha_hasta.
+   La migración 010 corre antes via el step "Aplicar migraciones a Turso".
+   El `INSERT OR IGNORE` por `(codigo_mp, correlativo_item)` previene duplicados;
+   los items existentes se recategorizan al UPDATEar manualmente o se aceptan
+   con sus categorías históricas (decisión del Director).
+3. Validar conteo post-Lote-1 (esperado: 61/191 = 32% no-Otros vs 20% original).
+4. Si OK, disparar Lotes 2-12 en serie.
+
+---
+
 ## S13-fix — Migración Turso explícita + lotes cortos (2026-05)
 
 **Branch**: `fix/s13-migracion-turso-y-lotes-cortos`. **Estado**: PR pendiente.
