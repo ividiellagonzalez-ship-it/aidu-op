@@ -21,8 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 def _set_param(clave: str, valor: str):
-    """Helper para actualizar parámetros del sistema"""
-    conn = get_connection()
+    """Helper para actualizar parámetros del sistema.
+
+    Fix S13.2 (UI bug): cubre el descuido de PR #14 que solo proteja lecturas.
+    El error observado en producción fue
+    `sqlite3.DatabaseError: database disk image is malformed` durante una
+    escritura en el container de Streamlit Cloud con SQLite local
+    fisicamente corrupto. Cualquier excepcion durante la escritura queda
+    loggeada como WARNING + no-op para no bloquear el arranque de la UI.
+    Catch ancho (DatabaseError + OperationalError + Exception fallback)
+    por explicit del Director.
+    """
+    try:
+        conn = get_connection()
+    except Exception as e:
+        logger.warning(f"_set_param({clave!r}): get_connection fallo ({e}); no-op")
+        return
     try:
         conn.execute("""
             INSERT INTO aidu_parametros (clave, valor)
@@ -32,14 +46,25 @@ def _set_param(clave: str, valor: str):
                 fecha_modificacion = datetime('now', 'localtime')
         """, (clave, valor))
         conn.commit()
+    except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+        logger.warning(
+            f"_set_param({clave!r}): BD corrupta o tabla ausente ({e}); no-op"
+        )
+    except Exception as e:
+        logger.warning(f"_set_param({clave!r}): excepcion inesperada ({e}); no-op")
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def _get_param(clave: str, default: str = "") -> str:
-    # Fix S13 UI bug: si get_connection() o la query fallan (libsql sync
-    # transient, tabla ausente en SQLite local efimero del container
-    # Streamlit Cloud, etc.) devolvemos el default en lugar de romper.
+    # Fix S13 UI bug (ampliado en S13.2): si get_connection() o la query
+    # fallan (libsql sync transient, tabla ausente, BD corrupta) devolvemos
+    # el default en lugar de romper. Catch ancho aplicado por descuido
+    # observado en PR #14 (solo cubria DatabaseError pero `database disk
+    # image is malformed` puede emerger por otros paths).
     try:
         conn = get_connection()
     except Exception as e:
@@ -50,11 +75,17 @@ def _get_param(clave: str, default: str = "") -> str:
             "SELECT valor FROM aidu_parametros WHERE clave = ?", (clave,)
         ).fetchone()
         return row["valor"] if row else default
-    except sqlite3.DatabaseError as e:
-        logger.warning(f"_get_param({clave!r}): tabla ausente o BD inconsistente ({e}); default")
+    except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+        logger.warning(f"_get_param({clave!r}): BD corrupta o tabla ausente ({e}); default")
+        return default
+    except Exception as e:
+        logger.warning(f"_get_param({clave!r}): excepcion inesperada ({e}); default")
         return default
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def ejecutar_backfill_dias(dias: int = 14, fecha_fin: Optional[date] = None):
@@ -266,8 +297,11 @@ def estado_actual():
         try:
             row = conn.execute(sql).fetchone()
             return row["c"] if row else 0
-        except sqlite3.DatabaseError as e:
-            logger.warning(f"estado_actual: {sql!r} fallo ({e}); usando 0")
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+            logger.warning(f"estado_actual: {sql!r} fallo BD ({e}); usando 0")
+            return 0
+        except Exception as e:
+            logger.warning(f"estado_actual: {sql!r} excepcion inesperada ({e}); usando 0")
             return 0
 
     try:
@@ -282,7 +316,7 @@ def estado_actual():
                 SELECT fecha_consultada, n_licitaciones_descargadas
                 FROM mp_ingesta_log ORDER BY id DESC LIMIT 1
             """).fetchone()
-        except sqlite3.DatabaseError:
+        except (sqlite3.DatabaseError, sqlite3.OperationalError, Exception):
             ultima = None
 
         backfill = _get_param("backfill_completado", "0") == "1"
