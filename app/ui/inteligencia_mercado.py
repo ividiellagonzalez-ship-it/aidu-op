@@ -79,8 +79,12 @@ def _modo_produccion() -> bool:
 # ============================================================
 # CONSTANTES UI
 # ============================================================
+# S13.4.2 D4: importar la lista canonica desde el modulo categorizador
+# (antes habia 2 listas hardcoded divergentes: el modulo tenia 4 lineas,
+# la UI tenia 5). Una unica fuente de verdad.
+from app.core.categorizador_aidu_fast import LINEAS_AIDU_FAST_CON_OTROS
 
-LINEAS_AIDU_FAST = ["Ferreteria", "Aseo", "Oficina", "Equipamiento", "Otros"]
+LINEAS_AIDU_FAST = LINEAS_AIDU_FAST_CON_OTROS
 TIPOS_OBJETO = ["producto", "servicio", "hibrido"]
 
 

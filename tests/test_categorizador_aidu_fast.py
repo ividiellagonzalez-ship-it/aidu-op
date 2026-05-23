@@ -257,8 +257,12 @@ class TestCategorizarLinea:
         assert kws == []
 
     def test_keywords_matched_documentado(self):
+        # S13.4.2 D3: con prioridad fija, "cemento" cae en "Materiales de
+        # Construccion" (mas especifico) en lugar de Ferreteria. La keyword
+        # 'cemento' esta tanto en Ferreteria (legacy) como en Construccion;
+        # el orden de prioridad resuelve la colision.
         linea, kws = categorizar_linea("BOLSA DE CEMENTO 25KG")
-        assert linea == "Ferreteria"
+        assert linea == "Materiales de Construccion"
         assert "cemento" in kws
 
 
@@ -286,7 +290,11 @@ CASOS_REALES_LOTE_1 = [
 
     # Ferreteria: keywords nuevos construccion/iluminacion/luminaria/led/arido/alcantarillado/mejoramiento
     ("CONSTRUCCIÓN DE RESALTO REDUCTOR DE VELOCIDAD, COMUNA DE SANTA CRUZ", "Ferreteria"),
-    ("CONVENIO DE SUMINISTRO ADQUISICIÓN DE ÁRIDOS", "Ferreteria"),
+    # S13.4.2 D3: prioridad fija reclasifica este caso de Ferreteria a
+    # Materiales de Construccion. La keyword `arido` esta en ambas lineas;
+    # con prioridad Construccion > Ferreteria gana Construccion. Es
+    # semanticamente correcto (los aridos son insumo estructural).
+    ("CONVENIO DE SUMINISTRO ADQUISICIÓN DE ÁRIDOS", "Materiales de Construccion"),
     ("El proyecto considera la instalación de 25 luminarias LED de 120W", "Ferreteria"),
     ("Estudio de Factibilidad Programa Mejoramiento de Barrios Construcción Alcantarillado Guadalao", "Ferreteria"),
     ("Línea 4: Iluminación Básica", "Ferreteria"),
@@ -396,11 +404,20 @@ class TestCSVCatalogo:
     def test_csv_existe(self):
         assert CSV_PATH.exists(), f"CSV faltante: {CSV_PATH}"
 
-    def test_csv_carga_4_lineas(self):
+    def test_csv_carga_6_lineas(self):
+        # S13.4.2: ampliado de 4 a 6 lineas (agregadas Salud y Materiales
+        # de Construccion). El catalog ahora retorna (incluyentes, excluyentes)
+        # por linea en lugar de lista plana.
         c = cargar_catalogo_desde_csv(CSV_PATH)
-        assert set(c.keys()) == {"Ferreteria", "Aseo", "Oficina", "Equipamiento"}
+        assert set(c.keys()) == {
+            "Ferreteria", "Aseo", "Oficina", "Equipamiento",
+            "Salud", "Materiales de Construccion",
+        }
         for linea, kws in c.items():
-            assert len(kws) >= 20, f"Linea {linea} tiene solo {len(kws)} keywords (<20)"
+            incluyentes, _excluyentes = kws
+            assert len(incluyentes) >= 20, (
+                f"Linea {linea} tiene solo {len(incluyentes)} keywords incluyentes (<20)"
+            )
 
     def test_keywords_servicio_son_ascii_unaccented(self):
         # Para mejor matching post-normalizacion

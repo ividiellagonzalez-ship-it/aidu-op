@@ -3,6 +3,95 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13.4.2 — Líneas Salud + Construcción + prioridad fija + excluyentes (2026-05)
+
+**Branch**: `feature/s13-4-2-lineas-salud-construccion`. **Estado**: PR pendiente.
+**Origen**: tras descartar S13.4.1 (premisa de bug de parser inexistente), el
+diagnóstico de calidad del Lote 1 sobre los 654 items reveló que 270 de los
+434 en `linea_aidu='Otros'` son insumos médicos sin clasificar. Sprint de
+cosecha rápida: enriquece el diccionario y re-clasifica, sin re-descargar.
+
+### Decisiones del Director (5)
+
+- **D1** APROBADO: CSV + mig 011 con `DELETE + INSERT OR REPLACE` (mismo patrón mig 010).
+- **D2** APROBADO: soporte `keywords_excluyentes` activado (columna ya existía desde mig 001 sin uso). CSV ahora tiene columna `excluyente` (0/1).
+- **D3** APROBADO: refactor a prioridad fija: Salud > Construcción > Aseo > Oficina > Ferretería > Equipamiento > Otros.
+- **D4** APROBADO: las dos `LINEAS_AIDU_FAST` hardcoded del repo se unifican; la UI importa la canónica desde `app.core.categorizador_aidu_fast`.
+- **D5** APROBADO con condición: 1 caso del Lote 1 reclasificado (≤3 threshold) — ÁRIDOS pasa de Ferretería → Materiales de Construcción.
+
+### Re-interpretación de criterios cuantitativos (contexto del Director)
+
+El spec asumía "Salud 250-290 items" porque incluía matching por organismo.
+Tras rechazar ese path (sec 1.4), los rangos reales esperados:
+
+| Métrica | Spec original | Re-interpretado | Razón |
+|---|---|---|---|
+| Salud items | 250-290 | **50-130** | Sin matching por organismo |
+| Construcción items | 5-15 | 5-15 | Sin cambio |
+| Otros residual | <200 | **300-380** | Coherente con remoción de matching por organismo |
+| Aseo/Oficina/Equipamiento ±5% | Estricto | **Relajado** | Permite reclasificación correctiva de ~35 items médicos mal clasificados (laparoscópica, hemostático, ECG, brazalete) |
+
+Alarmas (mantienen estricto): producto claramente de Aseo en Salud / Otros < 100 / >3 casos Lote 1 cambian / pytest baja de 245.
+
+### Cambios por archivo
+
+- **`app/db/migrations/011_lineas_salud_construccion.sql`** (nuevo, +5kB):
+  - 3 ALTER en `inteligencia_precios`: `linea_aidu_anterior`, `reclasificacion_fecha`, `reclasificacion_motivo`.
+  - `DELETE FROM aidu_servicios_keywords WHERE tipo='aidu_fast'` + `INSERT OR REPLACE` con 6 filas (las 4 anteriores + FAST-SALUD + FAST-CONSTRUCCION).
+  - Pobla `keywords_excluyentes` (columna sin uso histórico).
+
+- **`config/keywords_aidu_fast.csv`** (modificado): nueva columna `excluyente` (0/1). Agregadas 37 keywords incluyentes + 1 excluyente para Salud; 36 incluyentes + 3 excluyentes para Materiales de Construcción. Total: 188 → 265 filas.
+
+- **`app/core/categorizador_aidu_fast.py`** (modificado):
+  - `LINEAS_AIDU_FAST`: 4 → 6 líneas.
+  - Nueva constante `LINEAS_AIDU_FAST_CON_OTROS` exportada para que la UI importe la lista canónica (D4).
+  - Nueva constante `PRIORIDAD_LINEAS` define el orden de matching (D3).
+  - `COD_SERVICIO_A_LINEA`: ampliado a 6 entries.
+  - Type alias `KeywordsCatalog = Dict[str, Tuple[List[str], List[str]]]` — ahora cada línea tiene (incluyentes, excluyentes).
+  - `cargar_catalogo_desde_conn` lee `keywords_excluyentes` con fallback a esquema viejo.
+  - `cargar_catalogo_desde_csv` lee columna `excluyente` con fallback.
+  - `set_catalogo` acepta shape viejo y nuevo (backward-compat).
+  - `categorizar_linea` refactor: recorre `PRIORIDAD_LINEAS`, descarta línea si alguna excluyente matchea, asigna primera línea con incluyente que matchee.
+  - `categorizar_tipo_objeto`: adapta acceso al nuevo shape preservando backward-compat.
+
+- **`app/ui/inteligencia_mercado.py`** (modificado, 1 línea efectiva):
+  - `LINEAS_AIDU_FAST` ahora se importa de `app.core.categorizador_aidu_fast` (D4 — fuente única de verdad).
+
+- **`scripts/s13_4_2_reclasificar_lineas.py`** (nuevo, ~150 líneas):
+  - One-shot post-merge. Lee `inteligencia_precios` via `turso_http_client`, calcula `linea_nueva` con `categorizar_linea`, UPDATE en batches de 50 con auditoría (`linea_aidu_anterior`, `reclasificacion_fecha`, `reclasificacion_motivo`).
+  - Imprime matriz de cambios `linea_origen → linea_destino` + distribución final.
+  - Idempotente: re-ejecutar es no-op.
+
+- **`.github/workflows/_chore_reclasificar_lineas.yml`** (nuevo, TEMPORAL):
+  - `workflow_dispatch` con step pre-flight de migraciones + ejecución del script. Cleanup en PR aparte tras validación del Director.
+
+- **`tests/test_clasificador_lineas.py`** (nuevo, 8 tests): un caso por línea + fallback + integridad de PRIORIDAD_LINEAS.
+- **`tests/test_clasificador_prioridad.py`** (nuevo, 7 tests): colisiones cemento/áridos/ladrillo + casos del `keywords_excluyentes`.
+- **`tests/test_no_match_organismo.py`** (nuevo, 5 tests): productos de Aseo/Oficina vendidos a hospitales NO se reclasifican; signatura de `categorizar_linea` no acepta param organismo (regresión arquitectónica).
+- **`tests/test_reclasificacion_idempotente.py`** (nuevo, 5 tests): valida lógica del script en memoria sin tocar Turso.
+
+- **`tests/test_categorizador_aidu_fast.py`** (modificado, ajustes per D5):
+  - `test_keywords_matched_documentado` actualizado: "BOLSA DE CEMENTO 25KG" reclasificado de Ferreteria a Materiales de Construccion por prioridad fija D3.
+  - `CASOS_REALES_LOTE_1["CONVENIO DE SUMINISTRO ADQUISICIÓN DE ÁRIDOS"]` actualizado: reclasificado de Ferreteria a Materiales de Construccion por prioridad fija D3.
+  - `test_csv_carga_4_lineas` → `test_csv_carga_6_lineas` (ahora son 6 líneas).
+- **`tests/test_ingesta_inteligencia_precios.py`** (modificado): `test_item_cemento` reclasificado de Ferreteria a Materiales de Construccion (consistencia con cambios D5).
+
+- **`docs/sprints/S13_4_2_diagnostico_parser_NULL.md`** (nuevo): diagnóstico del NULL ratio 16.2% en `precio_unitario`. Sin fix — propone S13.4.3 con scope acotado (`_safe_float` localizado + `or` short-circuit).
+
+### Tests
+**262/262 verde** (237 previos + 25 nuevos: 8 + 7 + 5 + 5 nuevos files).
+
+### Próximo paso post-merge (acciones del Director)
+
+1. Mergear PR `feature/s13-4-2-lineas-salud-construccion` desde GitHub web.
+2. Trigger manual del workflow `[CHORE] Reclasificar lineas S13.4.2 (TEMPORAL)` desde Actions tab. Branch: main.
+3. Verificar logs: matriz origen→destino + distribución final.
+4. Validación visual en https://aidu-op-ignacio.streamlit.app/Inteligencia_Mercado.
+5. PR de cleanup chico: borrar `_chore_reclasificar_lineas.yml` + `scripts/s13_4_2_reclasificar_lineas.py`.
+6. Decidir siguiente paso: S13.4.3 (fix parser NULL) o Lotes 5-12.
+
+---
+
 ## S13-keywords-iter-1 — +22 keywords + criterio #3 redefinido + S14 candidato (2026-05)
 
 **Branch**: `feature/s13-keywords-iter-1`. **Estado**: PR pendiente.

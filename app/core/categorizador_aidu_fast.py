@@ -48,17 +48,60 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # CONSTANTES PUBLICAS
 # ============================================================
+#
+# S13.4.2: ampliado a 6 lineas + Otros. Las 2 nuevas (Salud y Materiales
+# de Construccion) entraron tras el diagnostico de calidad del Lote 1
+# que mostro 270 items en 'Otros' que son insumos medicos no clasificados.
 
-LINEAS_AIDU_FAST = ["Ferreteria", "Aseo", "Oficina", "Equipamiento"]
+LINEAS_AIDU_FAST = [
+    "Ferreteria",
+    "Aseo",
+    "Oficina",
+    "Equipamiento",
+    "Salud",
+    "Materiales de Construccion",
+]
 LINEA_FALLBACK = "Otros"
 
+# Lista canonica de TODAS las lineas que pueden aparecer en
+# inteligencia_precios.linea_aidu (incluye el fallback Otros). El modulo
+# de UI debe importar esta constante en lugar de mantener una copia
+# hardcoded propia (S13.4.2 D4: unificar las dos listas duplicadas).
+LINEAS_AIDU_FAST_CON_OTROS = LINEAS_AIDU_FAST + [LINEA_FALLBACK]
+
+# Orden de prioridad descendente para el matching (S13.4.2 D3).
+# La primera linea cuyo set de keywords (incluyentes) matchee Y cuyas
+# excluyentes NO matcheen es la ganadora. Mas especifica primero.
+#
+# Racional del orden:
+#   1. Salud: insumos medicos (cateter, sonda, jeringa) son lo mas
+#      especifico semanticamente.
+#   2. Materiales de Construccion: cemento/fierro/arido en contexto de
+#      obra; mas especifico que ferreteria general.
+#   3. Aseo: jabon/cloro/detergente; no se solapa con Salud salvo
+#      casos como alcohol gel (manejados via excluyentes).
+#   4. Oficina: papeleria/toner.
+#   5. Ferreteria: herramientas y repuestos; mas general que Construccion.
+#   6. Equipamiento: mobiliario, electrodomesticos; ultimo porque es
+#      el mas amplio y captura cualquier item institucional sin pistas.
+PRIORIDAD_LINEAS = [
+    "Salud",
+    "Materiales de Construccion",
+    "Aseo",
+    "Oficina",
+    "Ferreteria",
+    "Equipamiento",
+]
+
 # Mapeo de cod_servicio (PK en aidu_servicios_keywords) -> linea_aidu
-# legible. Coherente con seed de la migracion 009.
+# legible. S13.4.2: ampliado a 6 lineas. Coherente con mig 011.
 COD_SERVICIO_A_LINEA = {
     "FAST-FERRETERIA": "Ferreteria",
     "FAST-ASEO": "Aseo",
     "FAST-OFICINA": "Oficina",
     "FAST-EQUIPAMIENTO": "Equipamiento",
+    "FAST-SALUD": "Salud",
+    "FAST-CONSTRUCCION": "Materiales de Construccion",
 }
 
 # Keywords de servicio (spec sec 3.3). Substring match insensible.
@@ -128,10 +171,18 @@ def es_ohiggins(region_raw: Optional[str]) -> bool:
 # CARGA DEL CATALOGO DE KEYWORDS
 # ============================================================
 # El catalogo se carga desde la tabla SQL al primer uso, y se cachea.
-# `KeywordsCatalog` es un diccionario {linea_aidu: [keywords_normalizadas]}.
+#
+# S13.4.2: el tipo `KeywordsCatalog` ahora mapea linea -> (incluyentes,
+# excluyentes). Las excluyentes vienen de la columna `keywords_excluyentes`
+# (existe desde mig 001 pero no se leia hasta S13.4.2). Una linea NO
+# matchea si alguna de sus excluyentes esta en la descripcion, aunque
+# alguna incluyente si matchee.
+#
 # Las claves del dict son los nombres legibles (Ferreteria, Aseo, etc).
 
-KeywordsCatalog = Dict[str, List[str]]
+# Estructura por linea: tuple (incluyentes, excluyentes).
+KeywordsLinea = Tuple[List[str], List[str]]
+KeywordsCatalog = Dict[str, KeywordsLinea]
 
 _CACHED_CATALOG: Optional[KeywordsCatalog] = None
 
@@ -144,32 +195,59 @@ def _split_keywords(raw: str) -> List[str]:
     return [normalizar_texto(k) for k in raw.split(",") if k.strip()]
 
 
+def _empty_catalog() -> KeywordsCatalog:
+    return {linea: ([], []) for linea in LINEAS_AIDU_FAST}
+
+
 def cargar_catalogo_desde_conn(conn) -> KeywordsCatalog:
-    """Carga {linea: [keywords]} desde una conexion SQLite/Turso-like.
-    `conn` debe soportar `execute(sql).fetchall()`.
+    """Carga {linea: (incluyentes, excluyentes)} desde una conexion
+    SQLite/Turso-like. `conn` debe soportar `execute(sql).fetchall()`.
 
-    Lee solo filas tipo='aidu_fast'. Si la columna `tipo` no existe (mig
-    009 no aplicada todavia), retorna catalogo vacio y loggea WARNING
-    explicito para que el ingestor pueda continuar sin crash.
+    S13.4.2: lee tanto `keywords` como `keywords_excluyentes`. Si la
+    columna `keywords_excluyentes` no existe (esquema viejo), degrada a
+    excluyentes=[] sin romper.
     """
-    catalog: KeywordsCatalog = {linea: [] for linea in LINEAS_AIDU_FAST}
+    catalog = _empty_catalog()
+    sql_full = (
+        "SELECT cod_servicio, keywords, keywords_excluyentes "
+        "FROM aidu_servicios_keywords WHERE tipo = 'aidu_fast'"
+    )
+    sql_fallback = (
+        "SELECT cod_servicio, keywords FROM aidu_servicios_keywords "
+        "WHERE tipo = 'aidu_fast'"
+    )
+    rows = None
     try:
-        cur = conn.execute(
-            "SELECT cod_servicio, keywords FROM aidu_servicios_keywords "
-            "WHERE tipo = 'aidu_fast'"
-        )
+        cur = conn.execute(sql_full)
         rows = cur.fetchall()
-    except Exception as e:
-        logger.warning(
-            "cargar_catalogo_desde_conn: SELECT fallo (%s). "
-            "Catalogo AIDU Fast vacio - migracion 009 puede no estar aplicada.",
-            e,
-        )
-        return catalog
+        has_excl_col = True
+    except Exception as e1:
+        # La columna no existe (mig 001 muy vieja, antes del schema definitivo)
+        # o el SELECT fallo por otra causa. Probamos sin excluyentes.
+        try:
+            cur = conn.execute(sql_fallback)
+            rows = cur.fetchall()
+            has_excl_col = False
+            logger.warning(
+                "cargar_catalogo_desde_conn: keywords_excluyentes no disponible (%s); "
+                "uso solo keywords incluyentes.", e1
+            )
+        except Exception as e2:
+            logger.warning(
+                "cargar_catalogo_desde_conn: SELECT fallo (%s). "
+                "Catalogo AIDU Fast vacio - migracion 009/011 puede no estar aplicada.",
+                e2,
+            )
+            return catalog
 
-    for row in rows:
+    for row in rows or []:
         cod_servicio = row[0] if not hasattr(row, "keys") else row["cod_servicio"]
         keywords_raw = row[1] if not hasattr(row, "keys") else row["keywords"]
+        excl_raw = ""
+        if has_excl_col:
+            excl_raw = (
+                row[2] if not hasattr(row, "keys") else row["keywords_excluyentes"]
+            ) or ""
         linea = COD_SERVICIO_A_LINEA.get(cod_servicio)
         if not linea:
             logger.warning(
@@ -177,17 +255,20 @@ def cargar_catalogo_desde_conn(conn) -> KeywordsCatalog:
                 cod_servicio,
             )
             continue
-        catalog[linea] = _split_keywords(keywords_raw)
+        catalog[linea] = (_split_keywords(keywords_raw), _split_keywords(excl_raw))
     return catalog
 
 
 def cargar_catalogo_desde_csv(csv_path: Path) -> KeywordsCatalog:
     """Fallback: carga el catalogo desde config/keywords_aidu_fast.csv.
 
+    S13.4.2: lee la nueva columna `excluyente` (0/1 flag). Si la columna
+    no existe (CSV viejo), todas las keywords se consideran incluyentes.
+
     Util en contextos donde no hay conexion SQL (tests unitarios puros,
     o carga ad-hoc fuera del pipeline). Lee solo filas con activo=1.
     """
-    catalog: KeywordsCatalog = {linea: [] for linea in LINEAS_AIDU_FAST}
+    catalog = _empty_catalog()
     if not csv_path.exists():
         logger.warning("CSV de keywords no existe: %s", csv_path)
         return catalog
@@ -199,6 +280,8 @@ def cargar_catalogo_desde_csv(csv_path: Path) -> KeywordsCatalog:
         "aseo": "Aseo",
         "oficina": "Oficina",
         "equipamiento": "Equipamiento",
+        "salud": "Salud",
+        "materiales de construccion": "Materiales de Construccion",
     }
     with csv_path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -210,15 +293,38 @@ def cargar_catalogo_desde_csv(csv_path: Path) -> KeywordsCatalog:
             if not linea:
                 continue
             kw = normalizar_texto(row.get("keyword", ""))
-            if kw:
-                catalog[linea].append(kw)
+            if not kw:
+                continue
+            is_excl = row.get("excluyente", "0").strip() in ("1", "true", "True")
+            incl, excl = catalog[linea]
+            (excl if is_excl else incl).append(kw)
     return catalog
 
 
 def set_catalogo(catalog: KeywordsCatalog) -> None:
-    """Inyecta un catalogo explicito (para tests). Pisa el cache."""
+    """Inyecta un catalogo explicito (para tests). Pisa el cache.
+
+    S13.4.2: acepta tanto la forma nueva
+    `{linea: (incluyentes, excluyentes)}` como la vieja
+    `{linea: [keywords]}` (backward-compat para tests preexistentes).
+    Normaliza internamente al shape nuevo.
+    """
     global _CACHED_CATALOG
-    _CACHED_CATALOG = {linea: list(kws) for linea, kws in catalog.items()}
+    normalized: KeywordsCatalog = {}
+    for linea, kws in catalog.items():
+        if (
+            isinstance(kws, tuple)
+            and len(kws) == 2
+            and isinstance(kws[0], list)
+            and isinstance(kws[1], list)
+        ):
+            normalized[linea] = (list(kws[0]), list(kws[1]))
+        elif isinstance(kws, list):
+            # Forma vieja: lista plana de keywords incluyentes, sin excluyentes
+            normalized[linea] = (list(kws), [])
+        else:
+            normalized[linea] = ([], [])
+    _CACHED_CATALOG = normalized
 
 
 def reset_cache() -> None:
@@ -263,11 +369,21 @@ def categorizar_linea(
     se persiste en inteligencia_precios.keywords_matched para
     auditabilidad y mejora iterativa del diccionario.
 
-    Algoritmo:
+    Algoritmo (S13.4.2 D3 - prioridad fija):
       1. Normaliza la descripcion (lower + strip accents + apostrofe-fix).
-      2. Para cada linea, cuenta cuantas keywords aparecen como substring.
-      3. La linea con MAS matches gana. Empate -> primera alfabetica.
-      4. Si todas tienen 0 matches -> 'Otros' + [].
+      2. Recorre las lineas en orden PRIORIDAD_LINEAS (Salud > Construccion >
+         Aseo > Oficina > Ferreteria > Equipamiento).
+      3. Para la linea actual: si alguna keyword EXCLUYENTE aparece en el
+         texto, descarta esta linea (ej. 'cemento dental' descarta
+         Construccion porque 'cemento dental' es excluyente).
+      4. Si la linea no quedo descartada y alguna keyword INCLUYENTE aparece
+         en el texto, esta linea gana. Devuelve la lista de incluyentes
+         que matchearon.
+      5. Si ninguna linea gana -> 'Otros' + [].
+
+    Cambio respecto a S13: antes ganaba "la linea con mas keywords
+    matcheadas, empate alfabetico". Ahora gana "la primera linea en orden
+    de prioridad que matchee y no quede excluida".
     """
     if catalog is None:
         catalog = get_catalogo(conn=conn)
@@ -275,25 +391,19 @@ def categorizar_linea(
     if not texto:
         return LINEA_FALLBACK, []
 
-    scores: Dict[str, List[str]] = {linea: [] for linea in LINEAS_AIDU_FAST}
-    for linea, keywords in catalog.items():
-        for kw in keywords:
-            if not kw:
-                continue
-            if kw in texto:
-                scores[linea].append(kw)
+    for linea in PRIORIDAD_LINEAS:
+        kws_linea = catalog.get(linea)
+        if not kws_linea:
+            continue
+        incluyentes, excluyentes = kws_linea
+        # Excluyente match: descarta esta linea aunque incluyente matchee.
+        if any(e and e in texto for e in excluyentes):
+            continue
+        matched = [kw for kw in incluyentes if kw and kw in texto]
+        if matched:
+            return linea, matched
 
-    # Buscar la linea con mas matches
-    best_linea = LINEA_FALLBACK
-    best_count = 0
-    for linea in sorted(scores.keys()):  # alfabetico para desempate deterministico
-        count = len(scores[linea])
-        if count > best_count:
-            best_count = count
-            best_linea = linea
-    if best_count == 0:
-        return LINEA_FALLBACK, []
-    return best_linea, scores[best_linea]
+    return LINEA_FALLBACK, []
 
 
 # ============================================================
@@ -328,9 +438,18 @@ def categorizar_tipo_objeto(
 
     has_servicio = any(s in texto for s in KEYWORDS_SERVICIO)
 
+    # S13.4.2: el catalog ahora mapea linea -> (incluyentes, excluyentes).
+    # Para "has_producto" solo nos interesan las incluyentes (.0 del tuple);
+    # las excluyentes no son evidencia de producto.
     has_producto = False
     for linea_keywords in catalog.values():
-        if any(kw and kw in texto for kw in linea_keywords):
+        # Backward-compat con catalogos viejos: si el valor es lista plana,
+        # tratarlo como incluyentes. Si es tuple, tomar .0.
+        if isinstance(linea_keywords, tuple) and len(linea_keywords) == 2:
+            incluyentes = linea_keywords[0]
+        else:
+            incluyentes = linea_keywords
+        if any(kw and kw in texto for kw in incluyentes):
             has_producto = True
             break
 
