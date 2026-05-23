@@ -272,9 +272,13 @@ class TestCategorizarItemEnIngestor:
         reset_cache()
 
     def test_item_cemento(self):
+        # S13.4.2: con prioridad fija, "cemento" cae en "Materiales de
+        # Construccion" en lugar de Ferreteria (la keyword esta en ambas
+        # lineas; la prioridad resuelve la colision). Cambio semanticamente
+        # correcto.
         item = {"producto_descripcion": "BOLSA DE CEMENTO 25KG", "codigo_mp": "X-1"}
         out = categorizar_item(item)
-        assert out["linea_aidu"] == "Ferreteria"
+        assert out["linea_aidu"] == "Materiales de Construccion"
         assert out["tipo_objeto"] == "producto"
         assert "cemento" in out["keywords_matched"]
 

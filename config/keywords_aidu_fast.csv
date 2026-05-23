@@ -1,189 +1,266 @@
-linea,keyword,activo
-Ferreteria,cemento,1
-Ferreteria,hormigon,1
-Ferreteria,fierro,1
-Ferreteria,acero,1
-Ferreteria,perfil,1
-Ferreteria,clavo,1
-Ferreteria,tornillo,1
-Ferreteria,tuerca,1
-Ferreteria,perno,1
-Ferreteria,alambre,1
-Ferreteria,martillo,1
-Ferreteria,taladro,1
-Ferreteria,sierra,1
-Ferreteria,llave,1
-Ferreteria,destornillador,1
-Ferreteria,pintura,1
-Ferreteria,brocha,1
-Ferreteria,rodillo,1
-Ferreteria,madera,1
-Ferreteria,tabla,1
-Ferreteria,ladrillo,1
-Ferreteria,bloque,1
-Ferreteria,fragüe,1
-Ferreteria,yeso,1
-Ferreteria,malla,1
-Ferreteria,cable,1
-Ferreteria,enchufe,1
-Ferreteria,interruptor,1
-Ferreteria,tuberia,1
-Ferreteria,fitting,1
-Ferreteria,codo,1
-Ferreteria,cañeria,1
-Ferreteria,valvula,1
-Ferreteria,manguera,1
-Ferreteria,herramienta,1
-Ferreteria,andamio,1
-Ferreteria,escalera,1
-Ferreteria,casco,1
-Ferreteria,guante,1
-Ferreteria,bota,1
-Ferreteria,cinta metrica,1
-Ferreteria,carretilla,1
-Ferreteria,saco arena,1
-Ferreteria,gravilla,1
-Ferreteria,bisagra,1
-Ferreteria,candado,1
-Ferreteria,silicona,1
-Ferreteria,sellador,1
-Ferreteria,pegamento construccion,1
-Aseo,detergente,1
-Aseo,jabon,1
-Aseo,cloro,1
-Aseo,desinfectante,1
-Aseo,limpiador,1
-Aseo,escobillon,1
-Aseo,escoba,1
-Aseo,trapero,1
-Aseo,mopa,1
-Aseo,paño,1
-Aseo,papel higienico,1
-Aseo,toalla,1
-Aseo,servilleta,1
-Aseo,bolsa basura,1
-Aseo,dispensador,1
-Aseo,sanitizante,1
-Aseo,alcohol gel,1
-Aseo,lavaloza,1
-Aseo,suavizante,1
-Aseo,cera,1
-Aseo,lustramuebles,1
-Aseo,ambientador,1
-Aseo,desodorante,1
-Aseo,insecticida,1
-Aseo,desratizador,1
-Aseo,balde,1
-Aseo,esponja,1
-Aseo,guante latex,1
-Aseo,mascarilla,1
-Aseo,papel toalla,1
-Aseo,contenedor,1
-Aseo,pala,1
-Aseo,sopapo,1
-Aseo,limpia vidrios,1
-Aseo,antibacterial,1
-Aseo,desincrustante,1
-Aseo,virutilla,1
-Aseo,detergente liquido,1
-Aseo,toalla nova,1
-Aseo,bolsa basura industrial,1
-Oficina,papel,1
-Oficina,resma,1
-Oficina,hoja,1
-Oficina,cuaderno,1
-Oficina,libreta,1
-Oficina,lapiz,1
-Oficina,lapicera,1
-Oficina,boligrafo,1
-Oficina,plumon,1
-Oficina,marcador,1
-Oficina,corrector,1
-Oficina,goma,1
-Oficina,sacapunta,1
-Oficina,regla,1
-Oficina,tijera,1
-Oficina,pegamento,1
-Oficina,cinta adhesiva,1
-Oficina,archivador,1
-Oficina,carpeta,1
-Oficina,separador,1
-Oficina,folder,1
-Oficina,sobre,1
-Oficina,etiqueta,1
-Oficina,post-it,1
-Oficina,perforadora,1
-Oficina,corchetera,1
-Oficina,corchete,1
-Oficina,clip,1
-Oficina,chinche,1
-Oficina,cartulina,1
-Oficina,block,1
-Oficina,agenda,1
-Oficina,calendario,1
-Oficina,tinta,1
-Oficina,toner,1
-Oficina,cartucho,1
-Oficina,resaltador,1
-Oficina,libro acta,1
-Oficina,papeleria,1
-Oficina,utiles escritorio,1
-Equipamiento,computador,1
-Equipamiento,notebook,1
-Equipamiento,laptop,1
-Equipamiento,monitor,1
-Equipamiento,teclado,1
-Equipamiento,mouse,1
-Equipamiento,impresora,1
-Equipamiento,escaner,1
-Equipamiento,proyector,1
-Equipamiento,pantalla,1
-Equipamiento,escritorio,1
-Equipamiento,silla,1
-Equipamiento,mesa,1
-Equipamiento,estante,1
-Equipamiento,mueble,1
-Equipamiento,archivador metalico,1
-Equipamiento,lockers,1
-Equipamiento,refrigerador,1
-Equipamiento,microondas,1
-Equipamiento,hervidor,1
-Equipamiento,cafetera,1
-Equipamiento,ventilador,1
-Equipamiento,calefactor,1
-Equipamiento,aire acondicionado,1
-Equipamiento,televisor,1
-Equipamiento,telefono,1
-Equipamiento,central telefonica,1
-Equipamiento,ups,1
-Equipamiento,regulador,1
-Equipamiento,switch,1
-Equipamiento,router,1
-Equipamiento,disco duro,1
-Equipamiento,memoria ram,1
-Equipamiento,procesador,1
-Equipamiento,tablet,1
-Equipamiento,kardex,1
-Equipamiento,estanteria,1
-Equipamiento,mueble oficina,1
-Ferreteria,construccion,1
-Ferreteria,iluminacion,1
-Ferreteria,luminaria,1
-Ferreteria,led,1
-Ferreteria,arido,1
-Ferreteria,alcantarillado,1
-Ferreteria,mejoramiento,1
-Aseo,alcohol isopropilico,1
-Aseo,materiales aseo,1
-Aseo,materiales y articulos de aseo,1
-Aseo,lavado,1
-Aseo,planchado,1
-Oficina,pendon,1
-Oficina,impresion logos,1
-Oficina,materiales de oficina,1
-Equipamiento,computacional,1
-Equipamiento,computacion,1
-Equipamiento,audio,1
-Equipamiento,amplificacion,1
-Equipamiento,mobiliario,1
-Equipamiento,generador,1
+linea,keyword,activo,excluyente
+Ferreteria,cemento,1,0
+Ferreteria,hormigon,1,0
+Ferreteria,fierro,1,0
+Ferreteria,acero,1,0
+Ferreteria,perfil,1,0
+Ferreteria,clavo,1,0
+Ferreteria,tornillo,1,0
+Ferreteria,tuerca,1,0
+Ferreteria,perno,1,0
+Ferreteria,alambre,1,0
+Ferreteria,martillo,1,0
+Ferreteria,taladro,1,0
+Ferreteria,sierra,1,0
+Ferreteria,llave,1,0
+Ferreteria,destornillador,1,0
+Ferreteria,pintura,1,0
+Ferreteria,brocha,1,0
+Ferreteria,rodillo,1,0
+Ferreteria,madera,1,0
+Ferreteria,tabla,1,0
+Ferreteria,ladrillo,1,0
+Ferreteria,bloque,1,0
+Ferreteria,fragüe,1,0
+Ferreteria,yeso,1,0
+Ferreteria,malla,1,0
+Ferreteria,cable,1,0
+Ferreteria,enchufe,1,0
+Ferreteria,interruptor,1,0
+Ferreteria,tuberia,1,0
+Ferreteria,fitting,1,0
+Ferreteria,codo,1,0
+Ferreteria,cañeria,1,0
+Ferreteria,valvula,1,0
+Ferreteria,manguera,1,0
+Ferreteria,herramienta,1,0
+Ferreteria,andamio,1,0
+Ferreteria,escalera,1,0
+Ferreteria,casco,1,0
+Ferreteria,guante,1,0
+Ferreteria,bota,1,0
+Ferreteria,cinta metrica,1,0
+Ferreteria,carretilla,1,0
+Ferreteria,saco arena,1,0
+Ferreteria,gravilla,1,0
+Ferreteria,bisagra,1,0
+Ferreteria,candado,1,0
+Ferreteria,silicona,1,0
+Ferreteria,sellador,1,0
+Ferreteria,pegamento construccion,1,0
+Aseo,detergente,1,0
+Aseo,jabon,1,0
+Aseo,cloro,1,0
+Aseo,desinfectante,1,0
+Aseo,limpiador,1,0
+Aseo,escobillon,1,0
+Aseo,escoba,1,0
+Aseo,trapero,1,0
+Aseo,mopa,1,0
+Aseo,paño,1,0
+Aseo,papel higienico,1,0
+Aseo,toalla,1,0
+Aseo,servilleta,1,0
+Aseo,bolsa basura,1,0
+Aseo,dispensador,1,0
+Aseo,sanitizante,1,0
+Aseo,alcohol gel,1,0
+Aseo,lavaloza,1,0
+Aseo,suavizante,1,0
+Aseo,cera,1,0
+Aseo,lustramuebles,1,0
+Aseo,ambientador,1,0
+Aseo,desodorante,1,0
+Aseo,insecticida,1,0
+Aseo,desratizador,1,0
+Aseo,balde,1,0
+Aseo,esponja,1,0
+Aseo,guante latex,1,0
+Aseo,mascarilla,1,0
+Aseo,papel toalla,1,0
+Aseo,contenedor,1,0
+Aseo,pala,1,0
+Aseo,sopapo,1,0
+Aseo,limpia vidrios,1,0
+Aseo,antibacterial,1,0
+Aseo,desincrustante,1,0
+Aseo,virutilla,1,0
+Aseo,detergente liquido,1,0
+Aseo,toalla nova,1,0
+Aseo,bolsa basura industrial,1,0
+Oficina,papel,1,0
+Oficina,resma,1,0
+Oficina,hoja,1,0
+Oficina,cuaderno,1,0
+Oficina,libreta,1,0
+Oficina,lapiz,1,0
+Oficina,lapicera,1,0
+Oficina,boligrafo,1,0
+Oficina,plumon,1,0
+Oficina,marcador,1,0
+Oficina,corrector,1,0
+Oficina,goma,1,0
+Oficina,sacapunta,1,0
+Oficina,regla,1,0
+Oficina,tijera,1,0
+Oficina,pegamento,1,0
+Oficina,cinta adhesiva,1,0
+Oficina,archivador,1,0
+Oficina,carpeta,1,0
+Oficina,separador,1,0
+Oficina,folder,1,0
+Oficina,sobre,1,0
+Oficina,etiqueta,1,0
+Oficina,post-it,1,0
+Oficina,perforadora,1,0
+Oficina,corchetera,1,0
+Oficina,corchete,1,0
+Oficina,clip,1,0
+Oficina,chinche,1,0
+Oficina,cartulina,1,0
+Oficina,block,1,0
+Oficina,agenda,1,0
+Oficina,calendario,1,0
+Oficina,tinta,1,0
+Oficina,toner,1,0
+Oficina,cartucho,1,0
+Oficina,resaltador,1,0
+Oficina,libro acta,1,0
+Oficina,papeleria,1,0
+Oficina,utiles escritorio,1,0
+Equipamiento,computador,1,0
+Equipamiento,notebook,1,0
+Equipamiento,laptop,1,0
+Equipamiento,monitor,1,0
+Equipamiento,teclado,1,0
+Equipamiento,mouse,1,0
+Equipamiento,impresora,1,0
+Equipamiento,escaner,1,0
+Equipamiento,proyector,1,0
+Equipamiento,pantalla,1,0
+Equipamiento,escritorio,1,0
+Equipamiento,silla,1,0
+Equipamiento,mesa,1,0
+Equipamiento,estante,1,0
+Equipamiento,mueble,1,0
+Equipamiento,archivador metalico,1,0
+Equipamiento,lockers,1,0
+Equipamiento,refrigerador,1,0
+Equipamiento,microondas,1,0
+Equipamiento,hervidor,1,0
+Equipamiento,cafetera,1,0
+Equipamiento,ventilador,1,0
+Equipamiento,calefactor,1,0
+Equipamiento,aire acondicionado,1,0
+Equipamiento,televisor,1,0
+Equipamiento,telefono,1,0
+Equipamiento,central telefonica,1,0
+Equipamiento,ups,1,0
+Equipamiento,regulador,1,0
+Equipamiento,switch,1,0
+Equipamiento,router,1,0
+Equipamiento,disco duro,1,0
+Equipamiento,memoria ram,1,0
+Equipamiento,procesador,1,0
+Equipamiento,tablet,1,0
+Equipamiento,kardex,1,0
+Equipamiento,estanteria,1,0
+Equipamiento,mueble oficina,1,0
+Ferreteria,construccion,1,0
+Ferreteria,iluminacion,1,0
+Ferreteria,luminaria,1,0
+Ferreteria,led,1,0
+Ferreteria,arido,1,0
+Ferreteria,alcantarillado,1,0
+Ferreteria,mejoramiento,1,0
+Aseo,alcohol isopropilico,1,0
+Aseo,materiales aseo,1,0
+Aseo,materiales y articulos de aseo,1,0
+Aseo,lavado,1,0
+Aseo,planchado,1,0
+Oficina,pendon,1,0
+Oficina,impresion logos,1,0
+Oficina,materiales de oficina,1,0
+Equipamiento,computacional,1,0
+Equipamiento,computacion,1,0
+Equipamiento,audio,1,0
+Equipamiento,amplificacion,1,0
+Equipamiento,mobiliario,1,0
+Equipamiento,generador,1,0
+Salud,cateter,1,0
+Salud,sonda,1,0
+Salud,pinza,1,0
+Salud,brazalete,1,0
+Salud,jeringa,1,0
+Salud,gasa,1,0
+Salud,mascarilla quirurgica,1,0
+Salud,sujetador tubo,1,0
+Salud,vendaje,1,0
+Salud,suero,1,0
+Salud,aposito,1,0
+Salud,tubo endotraqueal,1,0
+Salud,endotraqueal,1,0
+Salud,sonda nasogastrica,1,0
+Salud,gastrico,1,0
+Salud,biopsia,1,0
+Salud,grapadora endoscopica,1,0
+Salud,instrumental quirurgico,1,0
+Salud,estetoscopio,1,0
+Salud,tensiometro,1,0
+Salud,oxigeno,1,0
+Salud,electrocardiogr,1,0
+Salud,pulsioximetro,1,0
+Salud,nebulizador,1,0
+Salud,infusion intravenosa,1,0
+Salud,parche curativo,1,0
+Salud,compresa medica,1,0
+Salud,antiseptico,1,0
+Salud,reactivo laboratorio,1,0
+Salud,medicamento,1,0
+Salud,farmaceutico,1,0
+Salud,enfermeria,1,0
+Salud,tecnico de enfermeria,1,0
+Salud,hemostatico,1,0
+Salud,laparoscopica,1,0
+Salud,ecg,1,0
+Salud,monitor signos vitales,1,0
+Salud,alcohol gel para uso de oficina,1,1
+Materiales de Construccion,cemento,1,0
+Materiales de Construccion,hormigon,1,0
+Materiales de Construccion,fierro estructural,1,0
+Materiales de Construccion,acero estructural,1,0
+Materiales de Construccion,perfil estructural,1,0
+Materiales de Construccion,viga,1,0
+Materiales de Construccion,pilar,1,0
+Materiales de Construccion,malla acma,1,0
+Materiales de Construccion,enfierradura,1,0
+Materiales de Construccion,arena,1,0
+Materiales de Construccion,gravilla,1,0
+Materiales de Construccion,ripio,1,0
+Materiales de Construccion,arido,1,0
+Materiales de Construccion,base estabilizada,1,0
+Materiales de Construccion,madera dimensionada,1,0
+Materiales de Construccion,terciado,1,0
+Materiales de Construccion,osb,1,0
+Materiales de Construccion,mdf estructural,1,0
+Materiales de Construccion,ladrillo,1,0
+Materiales de Construccion,bloque de hormigon,1,0
+Materiales de Construccion,estuco,1,0
+Materiales de Construccion,mortero,1,0
+Materiales de Construccion,adoquin,1,0
+Materiales de Construccion,yeso carton,1,0
+Materiales de Construccion,volcanita,1,0
+Materiales de Construccion,ceramica para piso,1,0
+Materiales de Construccion,porcelanato,1,0
+Materiales de Construccion,frague,1,0
+Materiales de Construccion,baldosa,1,0
+Materiales de Construccion,plancha zinc,1,0
+Materiales de Construccion,plancha cubierta,1,0
+Materiales de Construccion,fieltro asfaltico,1,0
+Materiales de Construccion,lana mineral,1,0
+Materiales de Construccion,poliestireno expandido,1,0
+Materiales de Construccion,asfalto,1,0
+Materiales de Construccion,pavimento de hormigon,1,0
+Materiales de Construccion,pintura de oficina,1,1
+Materiales de Construccion,cemento dental,1,1
+Materiales de Construccion,cemento oseo,1,1
