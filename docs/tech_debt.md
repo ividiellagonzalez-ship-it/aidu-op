@@ -135,3 +135,100 @@ existentes** para mantener scope acotado.
 - [ ] Asignar TD-02 a un sprint futuro de cleanup técnico.
 
 ---
+
+## TD-03 — Formato de `confidence_score` en Excel exportado
+
+**Detectado en**: Sprint S13.4.4 reconnaissance (2026-05-24).
+**Estado**: abierto.
+**Origen**: side-finding del reconnaissance que demostró que el Excel
+descargable YA tiene las 17 columnas (incluyendo `confidence_score`,
+`clasificacion_metodo`, `es_producto_granular`). Inconsistencia
+cosmética detectada: el DataFrame de la UI muestra confidence como
+porcentaje legible (`"85%"`) gracias al transform en
+`app/ui/inteligencia_mercado.py:471-474`, pero el Excel exporta el
+float crudo (`0.85`) porque usa `df_filtrado[cols_validas]` y no la
+copia `df_display`.
+
+### Alcance
+
+Si el Director quiere consistencia visual UI ↔ Excel:
+
+1. En `_render_tab_buscador`, construir un `df_export` separado que
+   aplique el mismo formato de `df_display` (porcentaje legible) antes
+   del `_df_a_excel_bytes`.
+2. O bien, dejar el float crudo y agregar formateo de celda Excel
+   (porcentaje vía openpyxl number_format) para que abra como % en
+   Excel pero quede number nativo.
+
+### Riesgo
+
+- Opción 1 convierte `confidence_score` en string en el Excel —
+  pierde la capacidad de ordenar/filtrar numéricamente en Excel.
+- Opción 2 mantiene number nativo pero requiere import de
+  openpyxl.styles y un loop por fila → más código.
+
+### Recomendación
+
+Opción 2 (number_format) para no perder filtrabilidad. Pero **NO hay
+fix por ahora** — esperando decisión del Director.
+
+### Acción del Director
+
+- [ ] Decidir entre opción 1 (string `"85%"`), opción 2 (formato
+      Excel porcentaje) o dejar como está (float crudo).
+
+---
+
+## TD-04 — Falsos positivos `es_producto_granular=True` en descripciones de bloque
+
+**Detectado en**: Sprint S13.4.4 reconnaissance (2026-05-24).
+**Estado**: abierto.
+**Origen**: side-finding del Director durante auditoría manual del Excel
+descargable post-S13.4.3. Aproximadamente 58 items pasan el filtro
+`es_producto_granular=True` (lo marca el clasificador semántico) pero
+tienen `cantidad=1` y descripciones de tipo "agregado global":
+
+- "Ver listado anexo"
+- "Línea 1", "Línea 2", ...
+- "Según TDR"
+- "Detalle adjunto"
+
+Estos NO son granulares para análisis comercial — son una sola línea
+contractual que apunta a múltiples items reales. El prompt del
+clasificador semántico (`app/core/clasificador_semantico.py`
+`PROMPT_TEMPLATE`) no contiene un anti-patrón explícito para descripciones
+que delegan el detalle a un archivo externo.
+
+### Alcance del refinamiento
+
+1. Agregar al `PROMPT_TEMPLATE` una regla negativa explícita:
+   > "Si la descripción del producto remite a un archivo/anexo/listado
+   > externo sin describir un producto concreto (ej: 'ver listado',
+   > 'según TDR', 'anexo N', 'línea N'), marcar
+   > `es_producto_granular=false`. La cantidad=1 con monto grande es
+   > una señal débil pero no suficiente — debe haber producto descrito."
+2. Re-correr el script de reclasificación con `--force` sobre el
+   subset de items que matcheen estos patrones de descripción (no todos
+   los 687) para minimizar costo.
+3. Tests golden en `tests/test_es_producto_granular.py` con los
+   casos del Director.
+
+### Riesgo
+
+- Re-clasificar puede tocar items que no son problemáticos. Mitigar:
+  filtrar el subset con `WHERE producto_descripcion REGEXP ...` antes
+  del script.
+- El prompt actualizado debe seguir aceptando productos legítimos con
+  descripción corta. Validar con golden tests primero.
+
+### Out of scope explícito
+
+- Cambiar el modelo (`claude-sonnet-4-5` sigue siendo válido).
+- Rehacer la migración 012 (las 3 columnas siguen siendo correctas).
+
+### Acción del Director
+
+- [ ] Asignar TD-04 a un sprint futuro (probablemente S14 si el
+      análisis comercial Salud lo requiere para limpiar input).
+
+---

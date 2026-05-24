@@ -339,7 +339,14 @@ def main() -> int:
         "GROUP BY linea_aidu ORDER BY COUNT(*) DESC"
     )
     for r in final:
-        print(f"  {r[0]!r:35s} {r[1]:5d}")
+        # Defensive: Turso/Hrana devuelve COUNT(*) como string. Coerce
+        # explicitamente a int antes del format spec :d (mismo patron que
+        # _safe_int en app/ui/inteligencia_mercado.py).
+        try:
+            count_int = int(r[1])
+        except (TypeError, ValueError):
+            count_int = 0
+        print(f"  {r[0]!r:35s} {count_int:5d}")
 
     print("\nOK: reclasificacion semantica completa.")
     return 0

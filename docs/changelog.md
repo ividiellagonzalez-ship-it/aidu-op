@@ -3,6 +3,121 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13.4.4 — Cleanup post-S13.4.3 (2026-05-24)
+
+**Branch**: `feature/s13-4-4-cleanup-cosmetico`. **Estado**: PR pendiente.
+**Duración**: 10-15 min Code. **Costo Claude API**: $0.
+
+Sprint correctivo + documentación. Reconnaissance demostró que los dos
+hallazgos iniciales del Director (Excel sin columnas nuevas + 85 items
+con `precio_unitario NULL`) NO requieren cambios de código: el primero
+ya estaba resuelto en `main` desde S13.4.3, el segundo es limitación
+estructural del dato MP. Quedó cleanup cosmético + tech debt registrado.
+
+### Hallazgos del reconnaissance
+
+- **Hallazgo Excel — no requiere código**: el handler de `Exportar a
+  Excel` en `app/ui/inteligencia_mercado.py` (líneas 459-486) ya incluía
+  las 17 columnas (14 originales + `confidence_score`,
+  `clasificacion_metodo`, `es_producto_granular`) desde el merge de
+  S13.4.3 (PR #18). El Director había descargado un `.xlsx` previo al
+  deploy de Streamlit Cloud y vió las 14 columnas antiguas en cache. Tras
+  shift+reload + re-download desde la app productiva, las 3 columnas
+  nuevas aparecen.
+
+- **Hallazgo Parser NULL — limitación estructural del dato MP, NO bug**:
+  inspección manual de 3 códigos del listado del Director vía API MP
+  (con ticket demo `F8537A18-6766-4DEF-9E59-426B4FEE2844`) muestra que
+  los items con `precio_unitario IS NULL` en BD son items con
+  `Adjudicacion: None` en el JSON crudo. Esto es la API señalizando que
+  el comprador **declaró desierto ese ítem específico** dentro de una
+  licitación parcialmente adjudicada (sin oferentes para ese ítem,
+  precio no conveniente, o decisión del comprador).
+
+  | Código | Comprador | Items totales | `Adjudicacion=None` | Con precio OK |
+  |---|---|---|---|---|
+  | 1627-42-LE26 | Hospital San Fernando | 14 | **10** | 4 |
+  | 1627-29-LE26 | Hospital San Fernando | 13 | 2 | 11 |
+  | 2107-51-LE26 | Hospital Santa Cruz | 20 | 2 | 18 |
+  | **Total muestra** | | **47** | **14 (30%)** | 33 (70%) |
+
+  El parser (`app/core/ingesta_inteligencia_precios.py:272-286`) ya
+  maneja `Adjudicacion=None` correctamente: deja `precio_unitario=None`.
+  No hay nada que arreglar.
+
+  **Patrones del spec descartados con evidencia**:
+  - ❌ Coma decimal (`"7.885,00"`): los precios llegan como float Python
+    nativo (`20784.0`, `7885.0`, `46800.0`). No hay strings localizados.
+  - ❌ Nodo XML alternativo (`PrecioUnitario` / `Precio` / `ValorUnitario`):
+    los 3 son siempre `None`. La API solo expone `MontoUnitario`.
+  - ⚠️ Items sin nodo `Adjudicacion`: existe — pero el parser ya lo
+    maneja. NO es bug, es la API señalizando ítem desierto.
+
+  **Consecuencia para análisis comercial**: el techo real de cobertura
+  de la BD baja del 72% estimado a ~60% items oro (`precio_unitario>1`
+  y `cantidad>1`). Los 85 items NULL son ruido inevitable, no
+  recuperables vía re-parseo ni vía nueva descarga.
+
+### Cambios por archivo
+
+- **`scripts/s13_4_3_reclasificar_semantico.py`** (modificado, +5/-1):
+  fix cosmético línea 342. Coerción `int(r[1])` antes del format spec
+  `:5d` porque Turso/Hrana devuelve `COUNT(*)` como string en el
+  resumen final del script. Mismo patrón defensivo que
+  `_safe_int()` en la UI. El script se mantiene en repo: es reusable
+  en Lotes 5-12 del backfill histórico.
+
+- **`.github/workflows/_chore_clasificar_semantico.yml`** (BORRADO):
+  workflow temporal que cumplió su función (Run #2 exitoso con 687
+  items persistidos via S13.4.3.1 persistencia incremental). Política
+  de cleanup: no acumular workflows TEMPORAL en main. Si se re-necesita
+  para Lotes 5-12, se re-crea desde el script que sigue versionado.
+
+- **`docs/tech_debt.md`** (modificado, +2 TDs nuevos):
+  - **TD-03 — Formato de `confidence_score` en Excel exportado**:
+    side-finding del reconnaissance. El DataFrame de UI muestra `"85%"`
+    pero el Excel exporta `0.85` (float crudo). Sin fix por ahora — el
+    Director decidirá si quiere formato porcentual.
+  - **TD-04 — Falsos positivos `es_producto_granular=True` por
+    descripciones de bloque**: ~58 items con `cantidad=1` y descripción
+    tipo "ver listado anexo", "línea N", "según TDR" pasan el filtro
+    granular. El clasificador semántico los marca como granulares pero
+    semánticamente son agregados globales. Refinamiento del prompt
+    queda pendiente.
+
+### Fuera de scope (confirmado)
+
+- Lotes 5-12 backfill histórico (sprint posterior).
+- Refinamiento prompt semántico para TD-04 (sprint posterior).
+- Análisis comercial Salud (S14, con el techo real ~60%).
+- Cualquier intento de "recuperar" los 85 items NULL: estructuralmente
+  imposible.
+
+## S13.4.3.1 — Persistencia incremental + idempotencia + timeout 60min (2026-05-24)
+
+**Branch**: `feature/s13-4-3-1-persistencia-incremental`. **Estado**: mergeado a main.
+
+Fix post-S13.4.3 tras Run #1 del workflow temporal cancelado por timeout
+30min a 600/685 items con pérdida estimada $1.89 USD (los UPDATEs se
+aplicaban solo al cierre del loop). Cambios mínimos:
+
+- **`scripts/s13_4_3_reclasificar_semantico.py`** (refactor +170/-90):
+  flush incremental cada `BATCH_SIZE=50` items en lugar de un solo
+  flush al final. Idempotente: el SELECT inicial filtra
+  `WHERE clasificacion_metodo IS NULL OR clasificacion_metodo != 'semantic'`,
+  re-disparar el workflow continúa donde quedó. Flag `--force` para
+  override del filtro. Cost guard flushea pendiente antes de abortar.
+- **`.github/workflows/_chore_clasificar_semantico.yml`**: timeout
+  30 → 60 min (margen 2x).
+- **`tests/test_reclasificacion_persistencia_incremental.py`** (nuevo,
+  9 tests): cubre `_leer_pendientes` default/force, `_flush_batch`
+  (granular True/False/None codificado a Hrana, cantidad statements,
+  SQL correcto).
+
+**Resultado en producción**: Run #2 procesó 687 items en ~9 min
+(margen confortable bajo 60min timeout), persistencia visible incluso
+si hubiera fallado a mitad.
+
 ## S13.4.3 — Clasificador semántico con Claude API + es_producto_granular (2026-05)
 
 **Branch**: `feature/s13-4-3-clasificador-semantico`. **Estado**: PR pendiente.
