@@ -82,6 +82,10 @@ FILA_SAMPLE = [
     "producto",          # tipo_objeto
     "cemento",           # keywords_matched
     "backfill_1",        # lote_id
+    # S13.4.3: columnas nuevas (mig 012)
+    1,                   # es_producto_granular
+    0.85,                # confidence_score
+    "semantic",          # clasificacion_metodo
 ]
 
 
@@ -106,7 +110,9 @@ class TestCargarInteligenciaProduccion:
         with patch.object(im.turso_http_client, "query_all", return_value=[FILA_SAMPLE]):
             df = im._cargar_inteligencia_precios("2026-05-15", "2026-05-21")
             assert list(df.columns) == im._COLS_INTELIGENCIA
-            assert len(df.columns) == 21
+            # S13.4.3: 21 columnas originales + 3 nuevas (es_producto_granular,
+            # confidence_score, clasificacion_metodo) = 24.
+            assert len(df.columns) == 24
 
     def test_turso_falla_devuelve_df_vacio_con_cols_correctas(self, monkeypatch):
         monkeypatch.setenv("TURSO_DATABASE_URL", "libsql://demo.turso.io")
@@ -164,8 +170,9 @@ class TestCargarInteligenciaDev:
 class TestColsCoherencia:
 
     def test_cols_y_select_alineados(self):
-        # 21 columnas esperadas en orden estricto
-        assert len(im._COLS_INTELIGENCIA) == 21
+        # S13.4.3: 21 cols originales + 3 nuevas (es_producto_granular,
+        # confidence_score, clasificacion_metodo) = 24 columnas.
+        assert len(im._COLS_INTELIGENCIA) == 24
         for col in im._COLS_INTELIGENCIA:
             assert col in im._SELECT_INTELIGENCIA, (
                 f"Columna {col!r} esta en _COLS_INTELIGENCIA pero no aparece "

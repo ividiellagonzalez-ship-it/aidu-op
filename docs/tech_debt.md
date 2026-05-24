@@ -80,3 +80,58 @@ def setup_utf8_console() -> None:
       patrón ya repetido 3 veces.
 
 ---
+
+## TD-02 — Unificar 3 callers de Claude API en `app/core/analisis_*.py` al cliente canónico `app/api/claude_client.py`
+
+**Detectado en**: Sprint S13.4.3 reconnaissance (2026-05-25).
+**Estado**: abierto.
+**Origen**: durante reconnaissance del sprint S13.4.3 se identificó que ya
+existían 3 módulos en `app/core/` que llaman directamente a Claude API
+duplicando el patrón `anthropic.Anthropic(api_key=...) + client.messages.create()`:
+
+| Archivo | Línea | Modelo hardcoded |
+|---|---|---|
+| `app/core/analisis_ia.py` | 87 | `claude-sonnet-4-5` |
+| `app/core/analisis_bases.py` | 276 | `claude-sonnet-4-5` |
+| `app/core/analisis_masivo.py` | 132 | `claude-sonnet-4-5-20250929` |
+
+S13.4.3 introdujo el cliente canónico `app/api/claude_client.py` con
+`llamar_claude_json()` + override del modelo vía env var
+`CLAUDE_MODEL_CLASIFICADOR`. **El sprint NO refactorizó los 3 callers
+existentes** para mantener scope acotado.
+
+### Alcance del refactor
+
+1. En cada uno de los 3 módulos: reemplazar el bloque
+   `anthropic.Anthropic(api_key=...) + client.messages.create(model=..., ...)`
+   por una llamada al cliente canónico:
+   ```python
+   from app.api.claude_client import llamar_claude_json, get_client
+   # ... o usar get_client() directamente cuando se necesita streaming
+   ```
+2. Definir un parámetro `model: Optional[str] = None` en cada función;
+   default a `config.settings.get_modelo_clasificador()` o un nuevo
+   `get_modelo_analisis()` por consistencia.
+3. Eliminar imports duplicados de `anthropic` que ya no se usen.
+4. Tests: verificar que las 3 funciones siguen pasando con el mock
+   centralizado en el cliente canónico.
+
+### Riesgo
+
+- `analisis_masivo.py` usa `system` parameter y un `messages.create()`
+  con `system=...`. El cliente canónico ya soporta `system=` opcional.
+- Algunos callers usan `max_tokens` distintos (1500/4096/2500). Pasarlos
+  como argumento explícito al cliente canónico (parámetro existente).
+
+### Out of scope explícito
+
+- Cambiar la lógica de prompts de los 3 módulos (eso es S14 o sprint
+  comercial — no técnico).
+- Migrar los modelos a uno solo (cada caso de uso puede mantener su
+  modelo si hay justificación).
+
+### Acción del Director
+
+- [ ] Asignar TD-02 a un sprint futuro de cleanup técnico.
+
+---

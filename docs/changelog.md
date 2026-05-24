@@ -3,6 +3,116 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13.4.3 — Clasificador semántico con Claude API + es_producto_granular (2026-05)
+
+**Branch**: `feature/s13-4-3-clasificador-semantico`. **Estado**: PR pendiente.
+**Origen**: validación visual del Director (24/05/2026) sobre el Excel de 685
+items reveló ~33% de falsos positivos en el clasificador lexical
+(insumos médicos en Ferretería/Oficina por keywords ambiguas como
+'acero', 'malla', 'válvula', 'lápiz', 'cable').
+
+### Decisiones del Director durante reconnaissance
+
+- **Modelo Claude** = opción **(c)** APROBADA: configurable vía env var
+  `CLAUDE_MODEL_CLASIFICADOR` con default `claude-sonnet-4-5`. Override
+  sin tocar código.
+- **TD-02** AGENDADO: unificar 3 callers existentes de Claude API en
+  `app/core/analisis_*.py` al cliente canónico `app/api/claude_client.py`.
+  Documentado en `docs/tech_debt.md` TD-02. NO en scope de este sprint.
+- **Bug cosmético format spec :d**: aplicar patrón defensivo desde el
+  inicio en UI. Coerción explícita vía `_safe_int()` / `_safe_float()`
+  antes de cualquier format spec.
+
+### Cambios por archivo
+
+- **`app/db/migrations/012_clasificacion_semantica.sql`** (nuevo, +40):
+  3 ALTERs (`es_producto_granular INTEGER`, `confidence_score REAL`,
+  `clasificacion_metodo TEXT`) + 2 índices. Idempotente. Nota crítica
+  del file: no usar `;` en comments porque el migrator hace split simple.
+
+- **`config/settings.py`** (modificado, +20): nueva función
+  `get_modelo_clasificador()` que lee env var `CLAUDE_MODEL_CLASIFICADOR`
+  con fallback al `CLAUDE_MODEL` global. Permite override sin redeploy.
+
+- **`app/api/claude_client.py`** (nuevo, +130): cliente canónico con
+  `get_client()`, `llamar_claude_json()`, `ClaudeApiUnavailableError`.
+  Lazy import de `anthropic` para mantenerlo testeable con mocks. Soporta
+  override del modelo vía argumento y del system prompt opcional. README
+  inline indica override por env var.
+
+- **`app/core/clasificador_semantico.py`** (nuevo, +175): función pública
+  `clasificar_via_claude(descripcion, organismo)`. Prompt template del
+  spec sec 4.4. Validación contra `LINEAS_AIDU_FAST_CON_OTROS`. Coerción
+  defensiva de tipos (granular como bool/int/string, confidence clamp
+  0-1). Descripciones <10 chars no pegan API (ahorro costo).
+
+- **`app/core/ingesta_inteligencia_precios.py`** (modificado, +60/-3):
+  `categorizar_item()` ahora acepta `usar_semantico: bool = False`
+  (opt-in). En `True` intenta semántico, fallback automático al lexical
+  ante `ClaudeApiUnavailableError`. Siempre emite las 3 columnas nuevas
+  (granular/confidence/método) para que el INSERT del ingestor no rompa
+  por KeyError, aunque el modo lexical las deja en None/0.0/'keyword'.
+
+- **`scripts/s13_4_3_reclasificar_semantico.py`** (nuevo, +220, TEMPORAL):
+  one-shot UPDATE en batches de 50. Rate limit 5 req/s, backoff manual,
+  fallback lexical en cada item si API falla. Cost guard cada 50 items:
+  si proyección supera $5 USD, aborta con exit 4.
+
+- **`.github/workflows/_chore_clasificar_semantico.yml`** (nuevo, TEMPORAL):
+  `workflow_dispatch` con input opcional `modelo` para override del
+  default. Step pre-flight de migraciones. Cleanup en PR aparte.
+
+- **`app/ui/inteligencia_mercado.py`** (modificado, +75/-12):
+  - `_COLS_INTELIGENCIA`: 21 → 24 (agregadas 3 columnas semánticas).
+  - SELECT actualizado.
+  - `_safe_int()` / `_safe_float()` helpers defensivos para evitar el bug
+    `ValueError: Unknown format code 'd' for object of type 'str'`.
+  - `_aplicar_filtros()`: nuevos parámetros `solo_granulares` y
+    `confidence_min`.
+  - Tab buscador: checkbox "Solo productos granulares" (default True),
+    slider de confidence mínima (0-100%, default 0).
+  - Tabla muestra `confidence_score` formateado como `85%`, `clasificacion_metodo`
+    y `es_producto_granular`.
+
+- **`docs/tech_debt.md`** (modificado, +50): nueva entrada TD-02 (unificar
+  3 callers Claude API). TD-01 (UTF-8 wrapper) sigue abierto.
+
+- **Tests nuevos** (+30 tests, 3 archivos):
+  - `tests/test_clasificador_semantico.py`: parsing, validación de línea,
+    coerción de tipos, propagación de errores API.
+  - `tests/test_es_producto_granular.py`: 10 casos golden (producto vs
+    contrato marco vs obra vs estudio vs servicio).
+  - `tests/test_clasificador_fallback.py`: fallback lexical ante fallo
+    API + schema de columnas nuevas en cualquier modo.
+
+- **`tests/test_inteligencia_mercado_data.py`** (modificado, +9/-3):
+  fixture FILA_SAMPLE ampliado a 24 columnas. Asserts de `len(cols) == 24`.
+
+### Tests
+**295/295 verde** (262 previos + 33 nuevos en este sprint).
+
+### Validación local
+
+- Mig 012 aplicada en SQLite local. Verificación: 28 columnas en
+  `inteligencia_precios` (25 previas + 3 nuevas).
+- pytest 295 ok.
+- Smoke del cliente: imports OK, `arg_for_value` shape Hrana validado.
+
+### Próximo paso post-merge
+
+1. Director merge PR.
+2. Trigger manual del workflow `[CHORE] Clasificar semantico S13.4.3 (TEMPORAL)`.
+   Costo esperado ~$1.64 USD para 685 items.
+3. Validar logs: matriz origen→destino + distribución confidence + granulares.
+4. Validar visual en
+   https://aidu-op-ignacio.streamlit.app/Inteligencia_Mercado con filtro
+   "Solo granulares" activo.
+5. PR de cleanup chico (borrar workflow temporal + script).
+6. Decidir: Lotes 5-12 con clasificador semántico activo, fix parser
+   NULL (S13.4.4), o S14 Salud comercial.
+
+---
+
 ## S13.4.2-cleanup — Borrado de artefactos temporales del sprint S13.4.2 (2026-05)
 
 **Branch**: `chore/cleanup-s13-4-2-temporal-artifacts`. **Estado**: PR pendiente.
