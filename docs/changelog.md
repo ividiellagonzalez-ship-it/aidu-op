@@ -3,6 +3,74 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13.4.2-cleanup — Borrado de artefactos temporales del sprint S13.4.2 (2026-05)
+
+**Branch**: `chore/cleanup-s13-4-2-temporal-artifacts`. **Estado**: PR pendiente.
+**Tipo**: chore. Sin cambios funcionales.
+
+### Motivación
+
+Tras el merge de S13.4.2 (PR #16) y la ejecución exitosa del workflow temporal
+`[CHORE] Reclasificar lineas S13.4.2 (TEMPORAL)`, los siguientes artefactos
+cumplieron su función one-shot y se eliminan por política de no acumular
+workflows temporales en `main`:
+
+- Reclasificación efectiva confirmada por el Director: **90 items reclasificados
+  en Turso productivo** (48 a Salud, 11 a Materiales de Construcción, resto a
+  otras líneas vía prioridad fija D3).
+- El script y workflow son idempotentes — si se quisiera reusar el patrón en
+  el futuro, el commit `722df42` (S13.4.2) contiene la lógica original.
+
+### Cambios
+
+- **BORRADO**: `.github/workflows/_chore_reclasificar_lineas.yml` (50 líneas,
+  workflow_dispatch one-shot).
+- **BORRADO**: `scripts/s13_4_2_reclasificar_lineas.py` (~150 líneas, lógica de
+  UPDATE en batches contra Turso con auditoría).
+
+### Bug cosmético documentado (sin fix en este sprint)
+
+Durante la validación visual del Director en
+https://aidu-op-ignacio.streamlit.app/Inteligencia_Mercado, se detectó un
+error de formato en la pantalla:
+
+```
+ValueError: Unknown format code 'd' for object of type 'str'
+```
+
+**Causa probable**: en `app/ui/inteligencia_mercado.py` (o módulos
+adyacentes), algún `f"{valor:d}"` o equivalente recibe un `str` en lugar
+del `int` esperado. Patrón típico cuando un valor que se asume entero
+viene de Turso/Hrana como string serializado, o cuando una métrica con
+`int()` falla por valor None que se castea silenciosamente a string.
+
+**Fix sugerido (para sprint posterior)** — el patrón canónico es coercer
+explícitamente antes del format spec:
+
+```python
+# ANTES (fragil si valor llega como str o None):
+f"{valor:d}"
+f"{valor:,}"
+
+# DESPUÉS (defensivo):
+try:
+    n = int(valor) if valor not in (None, "") else 0
+except (TypeError, ValueError):
+    n = 0
+f"{n:d}"  # o f"{n:,}"
+```
+
+Donde aparezca el patrón roto, agregar coerción + fallback a 0 (o "—"
+para display). Aplica especialmente a `st.metric()` y a cualquier
+`f"...{x:d}..."` con valores que pueden venir de SQL/HTTP no tipado.
+
+### Cleanup pendiente (no en este sprint)
+
+- `.github/workflows/_chore_truncate_lote_1.yml` (sprint S13-trunc) sigue
+  en `main`. Cumplió su función pero no se borró en su momento. Agendar
+  cleanup conjunto cuando el dashboard de Turso permita confirmar que
+  `mp_licitaciones_adj` no tiene huecos.
+
 ## S13.4.2 — Líneas Salud + Construcción + prioridad fija + excluyentes (2026-05)
 
 **Branch**: `feature/s13-4-2-lineas-salud-construccion`. **Estado**: PR pendiente.
