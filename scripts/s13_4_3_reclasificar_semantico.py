@@ -1,33 +1,32 @@
 """
 S13.4.3 - Re-clasificacion semantica one-shot via Claude API.
 
-Lee los ~685 items de inteligencia_precios desde Turso, llama a Claude
-para cada uno, hace UPDATE en batches de 50.
+S13.4.3.1 (robustez):
+  - Persistencia INCREMENTAL: UPDATEs se flushean a Turso CADA BATCH_SIZE
+    items procesados, no al final. Asi un timeout intermedio (como el
+    Run 26365347283 que se cancelo a 600/685) no pierde trabajo.
+  - Idempotente: el SELECT inicial salta items que ya tienen
+    `clasificacion_metodo = 'semantic'`. Re-disparar el workflow continua
+    desde donde quedo. Override con `--force` para reclasificar todo.
+  - TIMEOUT del workflow aumentado a 60min con margen de seguridad.
 
-Rate limit: max 5 req/s (mas conservador que el limite de Claude API).
-Backoff exponencial 1s/4s/16s ante 429.
+Lee los items pendientes de inteligencia_precios desde Turso, llama a
+Claude para cada uno, y hace UPDATE incremental.
 
-Costo estimado: ~$1.64 USD para 685 items con sonnet-4-5.
-
-Idempotente: re-correr el script clasifica de nuevo, pero como sobreescribe
-linea_aidu/confidence_score, el segundo run puede dar resultados levemente
-distintos por variabilidad del modelo. El script siempre actualiza el
-campo `reclasificacion_fecha` para que la auditoria sea clara.
+Rate limit: max 5 req/s. Backoff exponencial implicito del SDK.
+Costo estimado: ~$1.64-$2.00 USD para 685 items con sonnet-4-5.
+Tope hard: $5 USD (aborta con exit 4 si proyeccion supera).
 """
-# Fix TD-01 (UTF-8 wrapper).
 import sys
 import io
-try:
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-except Exception:
-    pass
 
+import argparse
 import logging
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -47,21 +46,29 @@ logger = logging.getLogger("s13.4.3.reclasificar")
 BATCH_SIZE = 50
 RATE_LIMIT_REQ_PER_SEC = 5.0
 MIN_INTERVAL_S = 1.0 / RATE_LIMIT_REQ_PER_SEC
-COST_PROYECTADO_MAX_USD = 5.0  # tope per directiva Director
+COST_PROYECTADO_MAX_USD = 5.0
 CSV_PATH = Path(__file__).resolve().parents[1] / "config" / "keywords_aidu_fast.csv"
 MOTIVO = "S13.4.3: clasificador semantico via Claude API"
 
 # Cost approximation: sonnet-4-5 ~ $3/Mtok input, $15/Mtok output.
-# Prompt ~ 450 tokens + 200 max output = ~650 tokens/llamada.
-# Cost por item ~ (450*3 + 200*15) / 1M = $0.00435 ... corrigiendo:
-# ($3 * 450 + $15 * 200) / 1e6 = $1350/1e6 + $3000/1e6 = $0.00135 + $0.003 = $0.00435 input+output mezclado
-# En realidad input y output van separados:
-# input cost = 450 / 1M * $3 = $0.00135
-# output cost = 150 (avg) / 1M * $15 = $0.00225
-# total per llamada ~ $0.0036; *685 = $2.46 (peor caso)
-# La estimacion del spec ($1.64) asume output 100 tok promedio.
-COST_INPUT_PER_MTOK = 3.0  # USD per million tokens
+COST_INPUT_PER_MTOK = 3.0
 COST_OUTPUT_PER_MTOK = 15.0
+
+# SQL UPDATE - definido una sola vez, reusado en cada flush.
+_UPDATE_SQL = (
+    "UPDATE inteligencia_precios SET "
+    "  linea_aidu = ?, "
+    "  linea_aidu_anterior = ?, "
+    "  es_producto_granular = ?, "
+    "  confidence_score = ?, "
+    "  clasificacion_metodo = ?, "
+    "  reclasificacion_fecha = ?, "
+    "  reclasificacion_motivo = ? "
+    "WHERE id_item = ?"
+)
+
+# Tupla de cambio: (id, prev_linea, new_linea, granular, conf, razon, metodo)
+Cambio = Tuple[int, str, str, object, float, str, str]
 
 
 def _setup_logging() -> None:
@@ -72,18 +79,90 @@ def _setup_logging() -> None:
     )
 
 
+def _setup_utf8_stdout() -> None:
+    """TD-01: en Windows / CI cp1252 envuelve stdout en UTF-8 para no
+    crashear con tildes y emoji. Llamado solo desde main() para no
+    romper la captura de stdout de pytest cuando se importa el modulo."""
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def _estimar_costo_acumulado(n_calls: int, prompt_tokens_avg: int = 450,
                              output_tokens_avg: int = 120) -> float:
-    """Costo proyectado para N llamadas con sonnet-4-5."""
     input_cost = (prompt_tokens_avg * n_calls / 1_000_000.0) * COST_INPUT_PER_MTOK
     output_cost = (output_tokens_avg * n_calls / 1_000_000.0) * COST_OUTPUT_PER_MTOK
     return input_cost + output_cost
 
 
+def _flush_batch(cambios: List[Cambio], ahora: str) -> int:
+    """Aplica un batch de UPDATEs a Turso via execute_pipeline.
+
+    Devuelve la cantidad de statements enviados. Si falla, propaga la
+    excepcion al caller (caller decide si abortar o continuar — en este
+    script abortamos para no quedar con estado inconsistente entre Turso
+    y los logs).
+    """
+    if not cambios:
+        return 0
+    statements = []
+    for id_item, prev_linea, new_linea, g, conf, razon, metodo in cambios:
+        granular_db = (1 if g is True else 0 if g is False else None)
+        args = [arg_for_value(v) for v in (
+            new_linea, prev_linea, granular_db, conf, metodo,
+            ahora, f"{MOTIVO}; {razon[:200]}",
+            id_item,
+        )]
+        statements.append({"sql": _UPDATE_SQL, "args": args})
+    turso_http_client.execute_pipeline(statements, timeout=60.0)
+    return len(statements)
+
+
+def _leer_pendientes(force: bool) -> List:
+    """Devuelve los items a procesar. Default: solo los que aun no fueron
+    clasificados semanticamente. Con --force: TODOS los items.
+
+    El filtro `clasificacion_metodo IS NULL OR clasificacion_metodo !=
+    'semantic'` permite re-correr el script tras un timeout intermedio
+    sin re-procesar items que ya quedaron en Turso con metodo='semantic'.
+    """
+    if force:
+        sql = (
+            "SELECT id_item, producto_descripcion, organismo_comprador, linea_aidu "
+            "FROM inteligencia_precios ORDER BY id_item"
+        )
+    else:
+        sql = (
+            "SELECT id_item, producto_descripcion, organismo_comprador, linea_aidu "
+            "FROM inteligencia_precios "
+            "WHERE clasificacion_metodo IS NULL OR clasificacion_metodo != 'semantic' "
+            "ORDER BY id_item"
+        )
+    return turso_http_client.query_all(sql)
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Reclasificacion semantica via Claude API (S13.4.3)"
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-clasifica TODOS los items, ignorando clasificacion_metodo "
+             "previa. Por defecto solo se procesan items que aun no fueron "
+             "clasificados semanticamente (idempotencia post-timeout).",
+    )
+    args = parser.parse_args()
+
+    _setup_utf8_stdout()
     _setup_logging()
     print("=" * 60)
     print("S13.4.3 - Reclasificacion semantica via Claude API")
+    if args.force:
+        print("MODO: --force (reclasifica TODOS los items)")
+    else:
+        print("MODO: incremental (solo items no clasificados semanticamente)")
     print("=" * 60)
 
     if not turso_http_client.is_configured():
@@ -94,28 +173,30 @@ def main() -> int:
     reset_cache()
     set_catalogo(cargar_catalogo_desde_csv(CSV_PATH))
 
-    # 1. SELECT items a clasificar
+    # 1. SELECT items a clasificar (con filtro de idempotencia por defecto)
     print("Leyendo inteligencia_precios...")
-    rows = turso_http_client.query_all(
-        "SELECT id_item, producto_descripcion, organismo_comprador, linea_aidu "
-        "FROM inteligencia_precios ORDER BY id_item"
-    )
+    rows = _leer_pendientes(args.force)
     n_total = len(rows)
-    print(f"  Total items: {n_total}")
+    print(f"  Items pendientes: {n_total}")
     if n_total == 0:
-        print("  Tabla vacia. Nada que clasificar.")
+        print("  Nada que clasificar. Todos los items ya tienen "
+              "clasificacion_metodo='semantic'. Use --force para reclasificar.")
         return 0
 
-    # 2. Iterar con rate limit + cost guard
-    cambios: list = []  # (id, prev_linea, new_linea, granular, conf, razon)
+    # 2. Iterar: clasificar + UPDATEs incrementales cada BATCH_SIZE
     matriz: Counter = Counter()
     confidence_buckets = Counter({"alta": 0, "media": 0, "baja": 0})
     granular_count = Counter({"true": 0, "false": 0, "null": 0})
     metodo_count = Counter({"semantic": 0, "keyword": 0})
 
+    cambios_pendientes: List[Cambio] = []
+    n_persistidos = 0
     n_fallidos_api = 0
     last_req_t = 0.0
-    print("\nClasificando via Claude (rate limit 5 req/s)...")
+    ahora = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    print(f"\nClasificando + persistiendo cada {BATCH_SIZE} items "
+          f"(rate limit {RATE_LIMIT_REQ_PER_SEC} req/s)...")
     for i, row in enumerate(rows, start=1):
         id_item = row[0]
         descripcion = row[1] or ""
@@ -128,10 +209,10 @@ def main() -> int:
             time.sleep(MIN_INTERVAL_S - elapsed)
         last_req_t = time.time()
 
-        # Llamada con backoff manual + fallback lexical
-        resultado = None
+        # Clasificacion con fallback lexical individual
         try:
             resultado = clasificar_via_claude(descripcion, organismo)
+            metodo = "semantic"
             metodo_count["semantic"] += 1
         except ClaudeApiUnavailableError as e:
             n_fallidos_api += 1
@@ -143,6 +224,7 @@ def main() -> int:
                 "confidence": 0.0,
                 "razon": "fallback lexical por fallo API",
             }
+            metodo = "keyword"
             metodo_count["keyword"] += 1
 
         # Buckets de confidence
@@ -167,65 +249,66 @@ def main() -> int:
         if nueva_linea != linea_actual:
             matriz[(linea_actual, nueva_linea)] += 1
 
-        cambios.append((
+        cambios_pendientes.append((
             id_item, linea_actual, nueva_linea, g, conf,
-            resultado.get("razon", ""), metodo_count["semantic"] > metodo_count["keyword"],
+            resultado.get("razon", ""), metodo,
         ))
 
-        # Cost guard: cada 50 items proyectamos
+        # Flush incremental cada BATCH_SIZE items
+        if len(cambios_pendientes) >= BATCH_SIZE:
+            try:
+                _flush_batch(cambios_pendientes, ahora)
+            except Exception as e:
+                print(f"  ERROR en flush a item {i}: {e}")
+                # Si llegamos aca con cambios sin persistir, los items
+                # quedan en la BD sin metodo='semantic' y la proxima
+                # corrida los reintenta automaticamente (gracias a la
+                # idempotencia del SELECT). Abortamos con exit 3.
+                return 3
+            n_persistidos += len(cambios_pendientes)
+            print(f"  [{i}/{n_total}] flush +{len(cambios_pendientes)} "
+                  f"(total persistido {n_persistidos})")
+            cambios_pendientes.clear()
+
+        # Cost guard cada 50 items
         if i % 50 == 0:
-            costo_acumulado = _estimar_costo_acumulado(i)
-            proyectado_total = costo_acumulado * (n_total / i)
+            costo_acumulado = _estimar_costo_acumulado(metodo_count["semantic"])
+            proyectado_total = costo_acumulado * (n_total / max(i, 1))
             print(f"  [{i}/{n_total}] costo estimado acumulado=${costo_acumulado:.3f} "
                   f"proyectado total=${proyectado_total:.3f}")
             if proyectado_total > COST_PROYECTADO_MAX_USD:
+                # Flush lo pendiente antes de abortar para no perder
+                # trabajo ya pagado.
+                if cambios_pendientes:
+                    try:
+                        _flush_batch(cambios_pendientes, ahora)
+                        n_persistidos += len(cambios_pendientes)
+                    except Exception:
+                        pass
                 print(f"ABORT: costo proyectado ${proyectado_total:.2f} supera el "
-                      f"tope ${COST_PROYECTADO_MAX_USD:.2f}.")
+                      f"tope ${COST_PROYECTADO_MAX_USD:.2f}. "
+                      f"Items persistidos hasta aqui: {n_persistidos}.")
                 return 4
 
-    print(f"\nClasificacion completa: {n_total} items, "
-          f"{n_fallidos_api} fallidos (fallback lexical).")
+    # Flush remanente al cierre del loop
+    if cambios_pendientes:
+        try:
+            _flush_batch(cambios_pendientes, ahora)
+        except Exception as e:
+            print(f"  ERROR en flush final: {e}")
+            return 3
+        n_persistidos += len(cambios_pendientes)
+        print(f"  Flush final: +{len(cambios_pendientes)} (total {n_persistidos})")
+        cambios_pendientes.clear()
+
+    print(f"\nClasificacion completa: {n_total} items procesados, "
+          f"{n_persistidos} persistidos, {n_fallidos_api} fallidos API.")
     costo_real_estimado = _estimar_costo_acumulado(metodo_count["semantic"])
     print(f"Costo Claude API estimado: ${costo_real_estimado:.3f} USD "
           f"({metodo_count['semantic']} llamadas semantic + "
           f"{metodo_count['keyword']} keyword)")
 
-    # 3. UPDATE en batches
-    print("\nAplicando UPDATEs en batches de 50...")
-    ahora = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    sql = (
-        "UPDATE inteligencia_precios SET "
-        "  linea_aidu = ?, "
-        "  linea_aidu_anterior = ?, "
-        "  es_producto_granular = ?, "
-        "  confidence_score = ?, "
-        "  clasificacion_metodo = ?, "
-        "  reclasificacion_fecha = ?, "
-        "  reclasificacion_motivo = ? "
-        "WHERE id_item = ?"
-    )
-    n_persistidos = 0
-    for i in range(0, len(cambios), BATCH_SIZE):
-        batch = cambios[i:i + BATCH_SIZE]
-        statements = []
-        for id_item, prev_linea, new_linea, g, conf, razon, was_semantic in batch:
-            granular_db = (1 if g is True else 0 if g is False else None)
-            metodo = "semantic" if was_semantic else "keyword"
-            args = [arg_for_value(v) for v in (
-                new_linea, prev_linea, granular_db, conf, metodo,
-                ahora, f"{MOTIVO}; {razon[:200]}",
-                id_item,
-            )]
-            statements.append({"sql": sql, "args": args})
-        try:
-            turso_http_client.execute_pipeline(statements, timeout=60.0)
-        except Exception as e:
-            print(f"  ERROR en batch {i // BATCH_SIZE + 1}: {e}")
-            return 3
-        n_persistidos += len(batch)
-        print(f"  Batch {i // BATCH_SIZE + 1}: +{len(batch)} (total {n_persistidos})")
-
-    # 4. Resumen final
+    # 3. Resumen final
     print()
     print("=" * 60)
     print("RESUMEN")
@@ -250,7 +333,6 @@ def main() -> int:
     for (origen, destino), n in matriz.most_common(20):
         print(f"  {origen:30s} -> {destino:30s}  {n:4d}")
 
-    # Distribucion final por linea
     print("\nDistribucion final por linea (desde Turso):")
     final = turso_http_client.query_all(
         "SELECT linea_aidu, COUNT(*) FROM inteligencia_precios "
