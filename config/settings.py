@@ -160,6 +160,31 @@ CLAUDE_MODEL = "claude-sonnet-4-5"  # Modelo balance costo/calidad
 
 
 # ============================================================
+# S13.4.3: Modelo del clasificador semantico (override via env var)
+# ============================================================
+# El clasificador semantico (app/core/clasificador_semantico.py) usa este
+# modelo. Override sin tocar codigo:
+#
+#   export CLAUDE_MODEL_CLASIFICADOR=claude-sonnet-4-6
+#
+# Util para experimentar con modelos nuevos en el cron diario o en el
+# workflow temporal de reclasificacion. Si la env var esta vacia o no
+# existe, cae al default CLAUDE_MODEL.
+CLAUDE_MODEL_CLASIFICADOR_DEFAULT = CLAUDE_MODEL
+
+
+def get_modelo_clasificador() -> str:
+    """Lee CLAUDE_MODEL_CLASIFICADOR fresco; fallback a CLAUDE_MODEL.
+
+    Permite override por env var sin redeploy de codigo. Usado por:
+      - app/api/claude_client.py:llamar_claude_json default
+      - app/core/clasificador_semantico.py
+    """
+    val = os.environ.get("CLAUDE_MODEL_CLASIFICADOR", "").strip()
+    return val or CLAUDE_MODEL_CLASIFICADOR_DEFAULT
+
+
+# ============================================================
 # AIDU OP - Parámetros del negocio
 # ============================================================
 UF_VALOR_DEFAULT = 39000  # Se actualiza desde mindicador.cl en runtime

@@ -50,7 +50,34 @@ _COLS_INTELIGENCIA = [
     "unidad_medida", "cantidad", "precio_unitario", "monto_total",
     "proveedor_nombre", "proveedor_rut", "n_oferentes",
     "linea_aidu", "tipo_objeto", "keywords_matched", "lote_id",
+    # S13.4.3: columnas de clasificacion semantica.
+    "es_producto_granular", "confidence_score", "clasificacion_metodo",
 ]
+
+
+def _safe_int(v, default: int = 0) -> int:
+    """Defensive: Hrana puede devolver numeros como string. Coerce a int
+    antes de aplicar format spec ':d' o ':,' (evita el bug cosmetico
+    documentado en S13.4.2-cleanup)."""
+    if v is None or v == "":
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return default
+
+
+def _safe_float(v, default: float = 0.0) -> float:
+    """Defensive: idem _safe_int para floats."""
+    if v is None or v == "":
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
 
 
 def _modo_produccion() -> bool:
@@ -98,7 +125,8 @@ _SELECT_INTELIGENCIA = (
     "       organismo_region, region_entrega, producto_descripcion, "
     "       unidad_medida, cantidad, precio_unitario, monto_total, "
     "       proveedor_nombre, proveedor_rut, n_oferentes, "
-    "       linea_aidu, tipo_objeto, keywords_matched, lote_id "
+    "       linea_aidu, tipo_objeto, keywords_matched, lote_id, "
+    "       es_producto_granular, confidence_score, clasificacion_metodo "
     "  FROM inteligencia_precios "
     " WHERE fecha_adjudicacion BETWEEN ? AND ?"
 )
@@ -178,6 +206,8 @@ def _aplicar_filtros(
     proveedor: Optional[str],
     precio_min: Optional[float],
     precio_max: Optional[float],
+    solo_granulares: bool = False,
+    confidence_min: float = 0.0,
 ) -> pd.DataFrame:
     if df.empty:
         return df
@@ -197,6 +227,13 @@ def _aplicar_filtros(
         f = f[f["precio_unitario"].fillna(-1) >= precio_min]
     if precio_max is not None and precio_max > 0:
         f = f[f["precio_unitario"].fillna(1e18) <= precio_max]
+    # S13.4.3: filtros nuevos.
+    if solo_granulares and "es_producto_granular" in f.columns:
+        # Acepta 1, True. Items con NULL (no clasificados semanticamente)
+        # tambien se incluyen como "no granulares" para ser conservador.
+        f = f[f["es_producto_granular"].apply(lambda v: _safe_int(v) == 1)]
+    if confidence_min > 0.0 and "confidence_score" in f.columns:
+        f = f[f["confidence_score"].apply(lambda v: _safe_float(v) >= confidence_min)]
     return f
 
 
@@ -364,6 +401,24 @@ def _render_tab_buscador(df_full: pd.DataFrame) -> None:
                 min_value=0.0, value=0.0, step=1000.0,
                 key="ip_filter_pmax",
             )
+        # S13.4.3: nuevos filtros semanticos
+        c6, c7 = st.columns(2)
+        with c6:
+            solo_granulares = st.checkbox(
+                "Solo productos granulares",
+                value=True,
+                help="Excluye contratos marco, obras, servicios sin grano fisico. "
+                     "Recomendado para analisis de precios.",
+                key="ip_filter_granular",
+            )
+        with c7:
+            confidence_min_pct = st.slider(
+                "Confidence minima (%)",
+                min_value=0, max_value=100, value=0, step=10,
+                help="Filtra por confidence_score del clasificador semantico. "
+                     "0 = sin filtro.",
+                key="ip_filter_conf",
+            )
 
     df_filtrado = _aplicar_filtros(
         df_full,
@@ -374,17 +429,21 @@ def _render_tab_buscador(df_full: pd.DataFrame) -> None:
         proveedor=proveedor,
         precio_min=precio_min if precio_min > 0 else None,
         precio_max=precio_max if precio_max > 0 else None,
+        solo_granulares=solo_granulares,
+        confidence_min=confidence_min_pct / 100.0,
     )
 
-    # Stats
+    # Stats — defensive: Hrana puede devolver numeros como string. Coerce
+    # explicitamente a int antes de aplicar format spec ',' o ':d'
+    # (evita ValueError: Unknown format code 'd' for object of type 'str').
     stats = _stats_precio(df_filtrado)
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("N muestras", f"{stats['n']:,}")
-    c2.metric("Mediana", f"${int(stats['mediana']):,}" if stats["mediana"] else "—")
-    c3.metric("P25", f"${int(stats['p25']):,}" if stats["p25"] else "—")
-    c4.metric("P75", f"${int(stats['p75']):,}" if stats["p75"] else "—")
-    c5.metric("Minimo", f"${int(stats['minimo']):,}" if stats["minimo"] else "—")
-    c6.metric("Maximo", f"${int(stats['maximo']):,}" if stats["maximo"] else "—")
+    c1.metric("N muestras", f"{_safe_int(stats['n']):,}")
+    c2.metric("Mediana", f"${_safe_int(stats['mediana']):,}" if stats["mediana"] else "—")
+    c3.metric("P25", f"${_safe_int(stats['p25']):,}" if stats["p25"] else "—")
+    c4.metric("P75", f"${_safe_int(stats['p75']):,}" if stats["p75"] else "—")
+    c5.metric("Minimo", f"${_safe_int(stats['minimo']):,}" if stats["minimo"] else "—")
+    c6.metric("Maximo", f"${_safe_int(stats['maximo']):,}" if stats["maximo"] else "—")
 
     # Top proveedores
     st.markdown("##### Top 5 proveedores en este filtro")
@@ -392,20 +451,28 @@ def _render_tab_buscador(df_full: pd.DataFrame) -> None:
     st.dataframe(top_prov, use_container_width=True, hide_index=True)
 
     # Tabla de resultados (limit 500 para no romper Streamlit con N grande)
-    st.markdown(f"##### Resultados ({len(df_filtrado):,} items, mostrando hasta 500)")
+    # Defensive: len() devuelve int genuino; aun asi pasamos por _safe_int
+    # por consistencia con el patron del modulo.
+    st.markdown(
+        f"##### Resultados ({_safe_int(len(df_filtrado)):,} items, mostrando hasta 500)"
+    )
     cols_visibles = [
         "fecha_adjudicacion", "tipo_licitacion", "linea_aidu", "tipo_objeto",
         "producto_descripcion", "cantidad", "unidad_medida",
         "precio_unitario", "monto_total",
         "proveedor_nombre", "organismo_comprador", "n_oferentes",
+        # S13.4.3: confidence + metodo + granular para auditoria visual
+        "confidence_score", "clasificacion_metodo", "es_producto_granular",
         "codigo_mp", "keywords_matched",
     ]
     cols_validas = [c for c in cols_visibles if c in df_filtrado.columns]
-    st.dataframe(
-        df_filtrado[cols_validas].head(500),
-        use_container_width=True,
-        hide_index=True,
-    )
+    df_display = df_filtrado[cols_validas].head(500).copy()
+    # Format confidence como porcentaje legible (defensive coerce a float)
+    if "confidence_score" in df_display.columns:
+        df_display["confidence_score"] = df_display["confidence_score"].apply(
+            lambda v: f"{int(_safe_float(v) * 100)}%" if v not in (None, "") else "—"
+        )
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
 
     # Export Excel
     if not df_filtrado.empty:

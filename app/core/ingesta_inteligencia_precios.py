@@ -310,15 +310,69 @@ def expandir_items(
 # CATEGORIZACION (envuelve el modulo categorizador)
 # ============================================================
 
-def categorizar_item(item: dict, catalog=None) -> dict:
+def categorizar_item(item: dict, catalog=None, *, usar_semantico: bool = False) -> dict:
     """Mutates `item` adding linea_aidu, tipo_objeto, keywords_matched.
-    Devuelve el dict (para encadenar)."""
+
+    S13.4.3: nuevo parametro opt-in `usar_semantico`. Cuando es True
+    intenta primero el clasificador semantico (Claude API) y SOLO cae al
+    lexical si la API falla. Cuando es False (default), comportamiento
+    historico: solo lexical. Esto permite que el cron diario y el script
+    de re-clasificacion activen semantico via env var/flag, mientras los
+    tests existentes siguen ejecutando lexical sin cambios.
+
+    Campos agregados al item:
+      - linea_aidu, tipo_objeto, keywords_matched (siempre)
+      - es_producto_granular, confidence_score, clasificacion_metodo
+        (solo cuando usar_semantico=True; el lexical los deja en None,
+        0.0, 'keyword').
+
+    Devuelve el dict (para encadenar).
+    """
     descripcion = item.get("producto_descripcion") or ""
+    organismo = item.get("organismo_comprador") or ""
+
+    # Path lexical (default). Defensivo: las claves nuevas tambien se
+    # setean para mantener shape consistente.
     linea, kws = categorizar_linea(descripcion, catalog=catalog)
     tipo_obj = categorizar_tipo_objeto(descripcion, catalog=catalog)
     item["linea_aidu"] = linea
     item["tipo_objeto"] = tipo_obj
     item["keywords_matched"] = ",".join(kws) if kws else ""
+    item.setdefault("es_producto_granular", None)
+    item.setdefault("confidence_score", 0.0)
+    item.setdefault("clasificacion_metodo", "keyword")
+
+    if not usar_semantico:
+        return item
+
+    # Path semantico: intento Claude API. Si falla, ya tenemos los
+    # campos lexicales seteados arriba como fallback.
+    try:
+        # Import diferido: evitar pegar la API en imports de tests.
+        from app.core.clasificador_semantico import clasificar_via_claude
+        from app.api.claude_client import ClaudeApiUnavailableError
+        try:
+            resultado = clasificar_via_claude(descripcion, organismo)
+        except ClaudeApiUnavailableError as e:
+            logger.warning(
+                "categorizar_item(usar_semantico=True): Claude API fallo "
+                "para item %s: %s. Conservo clasificacion lexical.",
+                item.get("codigo_mp"), e,
+            )
+            return item
+
+        item["linea_aidu"] = resultado.get("linea", linea)
+        item["es_producto_granular"] = resultado.get("es_producto_granular")
+        item["confidence_score"] = float(resultado.get("confidence", 0.0))
+        item["clasificacion_metodo"] = "semantic"
+        # keywords_matched conserva el matching lexical como auditoria
+        # secundaria; razon de la decision semantica va en otro lado si
+        # el caller la guarda.
+    except Exception as e:
+        logger.warning(
+            "categorizar_item(usar_semantico=True): error inesperado (%s); "
+            "conservo clasificacion lexical.", e,
+        )
     return item
 
 
