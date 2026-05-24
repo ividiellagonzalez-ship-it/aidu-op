@@ -1,0 +1,85 @@
+name: '[CHORE] Backfill Feb 2026 S13.5 (TEMPORAL)'
+
+# TEMPORAL - one-shot post-merge de S13.5.
+# Backfill historico Febrero 2026 en region O'Higgins.
+#
+# Mes calendario completo (28 dias). Items estimados: 150-300.
+# Costo Claude API esperado: ~$0.70 USD. Cost guard: $3.00 USD.
+# Wall clock esperado: 12-20 min. timeout: 60 min (margen 3x).
+#
+# Idempotente: re-dispatchar este workflow NO duplica filas ni
+# re-paga Claude (SKIP por codigo_mp ya en BD).
+#
+# CLEANUP: este workflow se elimina en el batch cleanup final (S13.14+)
+# junto con los workflows _chore_backfill_*.yml de los meses S13.6 .. S13.14.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Aplicar migraciones a Turso
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -c "
+          from app.db.migrator import run_migrations
+          n, applied = run_migrations()
+          print(f'Migraciones aplicadas: {n}')
+          for m in applied:
+              print(f'  - {m}')
+          "
+
+      - name: Backfill Feb 2026 (semantico + idempotente)
+        env:
+          MP_TICKET: ${{ secrets.MP_TICKET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python -m scripts.s13_5_backfill_feb2026
+
+      - name: Reporte conteo post-backfill
+        if: always()
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -c "
+          from app.db import turso_http_client
+          # Items Feb 2026 totales
+          rows = turso_http_client.query_all(
+              \"SELECT COUNT(*) FROM inteligencia_precios \"
+              \"WHERE fecha_adjudicacion BETWEEN '2026-02-01' AND '2026-02-28'\"
+          )
+          print(f'Items Feb 2026 totales en BD: {rows[0][0] if rows else 0}')
+          # Items por lote_id
+          rows = turso_http_client.query_all(
+              \"SELECT COUNT(*) FROM inteligencia_precios WHERE lote_id = ?\",
+              [{'type': 'text', 'value': 'backfill_feb2026'}]
+          )
+          print(f'Items con lote_id=backfill_feb2026: {rows[0][0] if rows else 0}')
+          # Total BD post-backfill
+          rows = turso_http_client.query_all(
+              \"SELECT COUNT(*) FROM inteligencia_precios\"
+          )
+          print(f'Total BD post-backfill: {rows[0][0] if rows else 0}')
+          "
