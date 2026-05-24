@@ -3,6 +3,137 @@
 Registro cronológico de sprints técnicos desde S12. Para sprints previos
 ver `docs/sprints/` (notas individuales por sprint) y el log de git.
 
+## S13.5 — Backfill histórico Febrero 2026 O'Higgins (2026-05-24)
+
+**Branch**: `feature/s13-5-backfill-feb2026`. **Estado**: PR pendiente.
+**Duración**: ~45 min Code. **Costo Claude API esperado**: ~$0.70 USD
+(cost guard $3.00). **Items estimados**: 150-300.
+
+**Primer sprint** de una serie de 10 sprints encadenados que cubrirán
+progresivamente los 10 meses faltantes (feb 2026 → may 2025). La
+infraestructura introducida aquí (idempotencia por `codigo_mp` + flag
+`usar_semantico` en el ingestor) será reutilizada por **S13.6 hasta
+S13.14**. Esos sprints siguientes serán de ~15 min Code cada uno
+(básicamente: cambiar fechas en el script + crear workflow temporal).
+
+### Reconnaissance previo: discrepancias con el spec
+
+- **`ingestar_rango()` ya existía**: se llama `ingerir_rango()` en
+  `app/core/ingesta_inteligencia_precios.py:466-629`. Spec sec 10 dice
+  "reusar, no duplicar" → seguimos esa regla. Solo agregamos params
+  nuevos.
+- **`region_codigo` NO se puede pasar a la API MP**: el endpoint
+  `/licitaciones.json?fecha=DDMMYYYY&estado=adjudicada` no acepta
+  filtro por región. Filtrado client-side via `unit_code` CSV +
+  `organismos_ohiggins_auto`. Mantenemos la arquitectura existente.
+- **Endpoint MP histórico es el MISMO que el diario**: confirmado en
+  reconnaissance S13.4.4 (llamadas exitosas a códigos feb 2026 con
+  ticket demo).
+- **Ingestor actual NO usa Claude durante la ingesta**: solo lexical.
+  Los 687 items con `clasificacion_metodo='semantic'` lo son por el
+  script post-hoc S13.4.3. Para que el backfill use Claude desde el
+  origen hay que threadear `usar_semantico=True` por
+  `ingerir_rango()` → `categorizar_item()`.
+
+### Decisiones del Director aprobadas (S13.5 sec 4 + ajustes finos)
+
+- **D1 = (a)**: reusar `ingerir_rango()` agregándole `usar_semantico` kwarg.
+- **D2 = (a)**: SELECT bulk al inicio para idempotencia por `codigo_mp`,
+  con buffer **±30 días** sobre el rango (cubre licitaciones
+  publicadas un mes y adjudicadas el siguiente).
+- **D3 = (a)**: workflow temporal dedicado `_chore_backfill_feb2026.yml`.
+  Se borra en batch cleanup al final del backfill 12 meses.
+- **D4 = (a)**: 1 dispatch único cubre los 28 días de Feb 2026
+  (persistencia incremental + cost guard $3 USD protegen).
+
+### Cambios por archivo
+
+- **`app/core/ingesta_inteligencia_precios.py`** (modificado, +120/-3):
+  - Constantes nuevas: `COST_INPUT_PER_MTOK=3.0`, `COST_OUTPUT_PER_MTOK=15.0`,
+    `PROMPT_TOKENS_AVG=450`, `OUTPUT_TOKENS_AVG=120`. Helper
+    `_estimar_costo_claude(n_calls)`.
+  - `StatsCorrida` extendido: `n_skip_idempotente`,
+    `n_llamadas_semanticas`, `costo_claude_usd`, `aborted_cost_guard`.
+  - Helper público `cargar_codigos_existentes(fecha_desde, fecha_hasta,
+    buffer_days=30)`: SELECT bulk con buffer ±30 días. Tolera Turso
+    no configurado / tabla faltante / query fallida (degrada a no-idempotente,
+    no crashea).
+  - `ingerir_rango()`: nuevos kwargs `usar_semantico=False`,
+    `cost_guard_max_usd=None`, `codigos_existentes_buffer_days=30`,
+    `codigos_existentes_override` (testing). Loop:
+    1. SKIP `codigo` si está en `codigos_existentes` antes de
+       `detalle_licitacion()` → ahorro cuota MP + Claude.
+    2. Thread `usar_semantico` a `categorizar_item()`.
+    3. Cost guard tras cada flush: proyecta usando proporción de días
+       procesados. Si supera tope, persiste pendiente + sale con
+       `stats.aborted_cost_guard=True`.
+
+- **`scripts/s13_5_backfill_feb2026.py`** (nuevo, +145, TEMPORAL):
+  wrapper que llama `ingerir_rango(date(2026,2,1), date(2026,2,28),
+  lote_id='backfill_feb2026', usar_semantico=True,
+  cost_guard_max_usd=3.0, ...)`. Pre-checks: Turso + MP_TICKET +
+  ANTHROPIC_API_KEY. Reporte final con todas las métricas del Director:
+  `n_listados`, `n_filtrados`, `n_skip_idempotente`, `n_procesados`,
+  `costo_claude_usd`, `ratio_cobertura` (para alerta temprana de TD-05),
+  `tiempo_total`. Exit codes 0/1/3/4.
+
+- **`.github/workflows/_chore_backfill_feb2026.yml`** (nuevo, TEMPORAL):
+  workflow_dispatch sin inputs. timeout 60min. Env vars TURSO + MP_TICKET
+  + ANTHROPIC_API_KEY. Step explícito de `run_migrations()`. Post-step
+  de reporte conteo Feb 2026 + total BD.
+
+- **`tests/test_idempotencia_backfill.py`** (nuevo, 11 tests):
+  - `TestCargarCodigosExistentes` (4): Turso no configurado / buffer
+    aplicado correctamente / devuelve set / query fallida no crashea.
+  - `TestSkipIdempotente` (4): SKIP no pega detalle / 0 detalles
+    cuando todos existen / cron diario NO precarga el set / backfill
+    SÍ lo precarga con `buffer_days=30`.
+  - `TestCostGuardBackfill` (3): default StatsCorrida flag False /
+    costo lineal en N calls / N=0 → costo=0.
+
+- **`tests/test_backfill_rango_fechas.py`** (nuevo, 10 tests):
+  - `TestIteracionRangoFechas` (4): 1 día / rango inclusivo / Feb 2026
+    = 28 días / `fecha_desde > fecha_hasta` → ValueError.
+  - `TestUsarSemanticoThreadThrough` (2): True propaga / False es default
+    y propaga (cron diario sigue lexical).
+  - `TestStatsCorridaCamposNuevos` (4): campos nuevos en dataclass /
+    costo se calcula al cierre / fallback a 'keyword' no cuenta como
+    llamada semántica / método 'semantic' sí cuenta.
+
+- **`docs/tech_debt.md`** (modificado, +TD-05):
+  TD-05 — cobertura unit_codes en meses lejanos. Riesgo de cobertura
+  baja en sprints S13.7 (dic 2025) hacia atrás por seed CSV no
+  actualizado. Mitigación: monitorear `ratio_cobertura` reportado por
+  cada script de backfill; si cae bajo 50% del baseline, sugerir
+  auto-discovery profundo antes del siguiente mes.
+
+### Idempotencia exacta
+
+Re-dispatchar el workflow N veces converge al mismo estado:
+1. Run 1: procesa ~230 items nuevos. Cost ~$0.70.
+2. Run 2: SELECT bulk encuentra los 230 + cualquier overlap con BD vieja.
+   `n_skip_idempotente` ≈ 230, `n_llamadas_semanticas` = 0, cost = $0.
+
+### Compatibilidad cron diario
+
+`ingerir_rango()` mantiene su signature anterior. Los nuevos kwargs son
+opcionales con defaults conservadores:
+- `usar_semantico=False`: cron diario sigue lexical, costo Claude $0.
+- `cost_guard_max_usd=None`: cron diario sin guard (no aplica).
+- `codigos_existentes_*` defaults: cron diario NO precarga el SELECT bulk
+  (es un costo Turso innecesario en el path lexical).
+
+Tests existentes pasan sin modificación.
+
+### Fuera de scope (confirmado)
+
+- Otros meses (S13.6 ene 2026 ... S13.14 may 2025): cada uno tendrá
+  su propio sprint chico.
+- Otras regiones (Antofagasta, Valparaíso, RM, Los Lagos): diferido a
+  sprints post-MVP regional.
+- Refinamiento TD-04 prompt semántico granular: diferido.
+- Re-clasificación de los 687 items existentes: NO se tocan.
+
 ## S13.4.4 — Cleanup post-S13.4.3 (2026-05-24)
 
 **Branch**: `feature/s13-4-4-cleanup-cosmetico`. **Estado**: PR pendiente.

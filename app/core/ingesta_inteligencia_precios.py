@@ -72,6 +72,24 @@ BATCH_SIZE_PERSIST = 50
 # solo para presentar ETA en el log de progreso, no para sleep.
 RATE_REQ_PER_MIN_EFECTIVO = 25
 
+# S13.5: precios USD por millon de tokens para sonnet-4-5 (input/output).
+# Usado solo para cost guard del modo backfill semantico. NO se usa en
+# el cron diario porque ese sigue lexical.
+COST_INPUT_PER_MTOK = 3.0
+COST_OUTPUT_PER_MTOK = 15.0
+# Promedios observados en S13.4.3 (Run #2, 687 items): 450 input + 120 output.
+PROMPT_TOKENS_AVG = 450
+OUTPUT_TOKENS_AVG = 120
+
+
+def _estimar_costo_claude(n_calls: int) -> float:
+    """Costo proyectado en USD para N llamadas a `clasificar_via_claude`."""
+    if n_calls <= 0:
+        return 0.0
+    input_cost = (PROMPT_TOKENS_AVG * n_calls / 1_000_000.0) * COST_INPUT_PER_MTOK
+    output_cost = (OUTPUT_TOKENS_AVG * n_calls / 1_000_000.0) * COST_OUTPUT_PER_MTOK
+    return input_cost + output_cost
+
 
 # ============================================================
 # ESTADISTICAS DE CORRIDA
@@ -96,6 +114,11 @@ class StatsCorrida:
     distribucion_por_linea: Dict[str, int] = field(default_factory=dict)
     distribucion_por_tipo: Dict[str, int] = field(default_factory=dict)
     tiempo_total_seg: float = 0.0
+    # S13.5: nuevos contadores para modo backfill con idempotencia + semantico.
+    n_skip_idempotente: int = 0       # codigos_mp ya presentes en BD (SKIP antes de pegar detalle)
+    n_llamadas_semanticas: int = 0    # items que se clasificaron via Claude API (no fallback lexical)
+    costo_claude_usd: float = 0.0     # estimacion en USD; recalculado al cierre desde n_llamadas_semanticas
+    aborted_cost_guard: bool = False  # True si cost guard freno la corrida
 
 
 # ============================================================
@@ -142,6 +165,58 @@ def cargar_unit_codes_auto() -> Set[str]:
 def cargar_unit_codes_validos(csv_path: Optional[Path] = None) -> Set[str]:
     """Union de CSV semilla + tabla auto."""
     return cargar_unit_codes_csv(csv_path) | cargar_unit_codes_auto()
+
+
+# ============================================================
+# S13.5: CARGA DE CODIGOS_MP YA EN BD (idempotencia de backfill)
+# ============================================================
+
+def cargar_codigos_existentes(
+    fecha_desde: date,
+    fecha_hasta: date,
+    *,
+    buffer_days: int = 30,
+) -> Set[str]:
+    """Trae el set de `codigo_mp` ya presentes en `inteligencia_precios`
+    cuya `fecha_adjudicacion` cae en [fecha_desde - buffer, fecha_hasta + buffer].
+
+    Usado por `ingerir_rango(usar_semantico=True, ...)` para SKIP idempotente:
+    si el codigo ya esta en BD, no se vuelve a pegar a la API MP ni se
+    paga la clasificacion Claude.
+
+    El buffer +/- N dias cubre edge cases de licitaciones publicadas un
+    mes y adjudicadas el mes siguiente (o viceversa). Default 30 dias
+    aprobado por Director (S13.5 ajustes finos).
+
+    Tolera Turso no configurado o tabla faltante: devuelve set vacio +
+    log WARNING. Esto degrada el modo backfill a "no-idempotente" pero
+    NO crashea el run (defensa en profundidad, igual que el cron diario).
+    """
+    if not turso_http_client.is_configured():
+        logger.info("cargar_codigos_existentes: Turso no configurado; set vacio.")
+        return set()
+    desde = (fecha_desde - timedelta(days=buffer_days)).isoformat()
+    hasta = (fecha_hasta + timedelta(days=buffer_days)).isoformat()
+    try:
+        rows = turso_http_client.query_all(
+            "SELECT DISTINCT codigo_mp FROM inteligencia_precios "
+            "WHERE fecha_adjudicacion >= ? AND fecha_adjudicacion <= ?",
+            [arg_for_value(desde), arg_for_value(hasta)],
+        )
+    except Exception as e:
+        logger.warning(
+            "cargar_codigos_existentes SELECT fallo: %s. "
+            "El modo backfill correra sin SKIP idempotente (puede re-pagar Claude API).",
+            e,
+        )
+        return set()
+    out = {(r[0] or "").strip() for r in rows if r and r[0]}
+    logger.info(
+        "cargar_codigos_existentes: %d codigos_mp ya en BD para ventana %s..%s "
+        "(buffer +/-%d dias).",
+        len(out), desde, hasta, buffer_days,
+    )
+    return out
 
 
 # ============================================================
@@ -474,6 +549,11 @@ def ingerir_rango(
     cliente: Optional[MercadoPublicoClient] = None,
     csv_organismos: Optional[Path] = None,
     rng_seed: Optional[int] = None,
+    # S13.5: nuevos parametros para modo backfill historico.
+    usar_semantico: bool = False,
+    cost_guard_max_usd: Optional[float] = None,
+    codigos_existentes_buffer_days: int = 30,
+    codigos_existentes_override: Optional[Set[str]] = None,
 ) -> StatsCorrida:
     """Descarga, filtra, categoriza y persiste adjudicaciones O'Higgins
     en el rango [fecha_desde, fecha_hasta].
@@ -489,6 +569,20 @@ def ingerir_rango(
         cliente: para inyeccion en tests. Default: nueva instancia.
         csv_organismos: override de la ruta del seed CSV (tests).
         rng_seed: semilla del RNG para discovery sampling (tests).
+        usar_semantico: opt-in modo backfill. Cuando True clasifica via
+            Claude API por cada item (con fallback lexical individual ante
+            ClaudeApiUnavailableError). Cuando False (default) mantiene el
+            comportamiento del cron diario: solo lexical, costo Claude $0.
+        cost_guard_max_usd: si no es None, aborta el run cuando la proyeccion
+            de costo Claude (basada en items semanticos procesados y dias
+            restantes) excede el tope. La corrida graba stats.aborted_cost_guard.
+            Solo aplica si usar_semantico=True.
+        codigos_existentes_buffer_days: para idempotencia, expande la
+            ventana de fecha del SELECT de codigos ya en BD en +/- N dias
+            (cubre licitaciones publicadas un mes y adjudicadas otro).
+            Default 30. Solo se usa si usar_semantico=True (modo backfill).
+        codigos_existentes_override: para tests, set explicito de codigos
+            que se consideran "ya en BD" en lugar de pegar a Turso.
     """
     if fecha_desde > fecha_hasta:
         raise ValueError(
@@ -508,6 +602,20 @@ def ingerir_rango(
             "Sin unit_codes validos (CSV+auto vacios). El filtro pre-detalle "
             "descartara todo. Verificar config/organismos_ohiggins.csv."
         )
+
+    # S13.5: en modo backfill semantico, precargar codigos_mp ya en BD
+    # para hacer SKIP antes de pegar detalle (ahorra cuota MP + Claude $).
+    # En modo cron diario (usar_semantico=False), no aplica: la
+    # idempotencia ya vive en INSERT OR IGNORE y el costo Claude es $0.
+    if codigos_existentes_override is not None:
+        codigos_existentes: Set[str] = set(codigos_existentes_override)
+    elif usar_semantico:
+        codigos_existentes = cargar_codigos_existentes(
+            fecha_desde, fecha_hasta,
+            buffer_days=codigos_existentes_buffer_days,
+        )
+    else:
+        codigos_existentes = set()
 
     items_buffer: List[dict] = []
     descubrimientos_buffer: List[dict] = []
@@ -539,6 +647,12 @@ def ingerir_rango(
             for lic in codigos_a_pegar:
                 codigo = lic.get("CodigoExterno", "")
                 if not codigo:
+                    continue
+                # S13.5: SKIP idempotente ANTES de pegar detalle.
+                # Codigos ya en BD no se vuelven a procesar: ahorra cuota
+                # API MP + costo Claude. Aplica solo si el set se cargo.
+                if codigo in codigos_existentes:
+                    stats.n_skip_idempotente += 1
                     continue
                 try:
                     det = cli.detalle_licitacion(codigo)
@@ -587,7 +701,12 @@ def ingerir_rango(
                     stats.n_descartados_sin_items += 1
                     continue
                 for it in items:
-                    categorizar_item(it, catalog=catalogo)
+                    categorizar_item(it, catalog=catalogo, usar_semantico=usar_semantico)
+                    # S13.5: contar llamadas Claude exitosas (cuando metodo
+                    # quedo 'semantic'; si Claude fallo y cayo a lexical el
+                    # metodo es 'keyword' y NO se cuenta para costo).
+                    if it.get("clasificacion_metodo") == "semantic":
+                        stats.n_llamadas_semanticas += 1
                     stats.distribucion_por_linea[it["linea_aidu"]] = (
                         stats.distribucion_por_linea.get(it["linea_aidu"], 0) + 1
                     )
@@ -615,6 +734,34 @@ def ingerir_rango(
                     stats.n_lotes_persistidos += 1
                     items_buffer.clear()
 
+                    # S13.5: cost guard. Evaluamos al cierre de cada flush
+                    # para amortizar el overhead. Proyectamos al fin del
+                    # rango usando proporcion de dias procesados.
+                    if (cost_guard_max_usd is not None
+                            and usar_semantico
+                            and stats.n_llamadas_semanticas > 0):
+                        costo_acumulado = _estimar_costo_claude(stats.n_llamadas_semanticas)
+                        proporcion_dias = dia_idx / max(total_dias, 1)
+                        proyectado = costo_acumulado / max(proporcion_dias, 0.01)
+                        if proyectado > cost_guard_max_usd:
+                            stats.aborted_cost_guard = True
+                            stats.costo_claude_usd = costo_acumulado
+                            logger.error(
+                                "ABORT cost guard: costo acumulado $%.3f USD "
+                                "proyectado $%.3f USD supera tope $%.2f USD. "
+                                "Items semanticos hasta aqui: %d. Flush ya "
+                                "persistido.",
+                                costo_acumulado, proyectado, cost_guard_max_usd,
+                                stats.n_llamadas_semanticas,
+                            )
+                            stats.dias_procesados = dia_idx
+                            stats.tiempo_total_seg = time.time() - t_inicio
+                            # Flush ultima tanda de descubrimientos antes de salir.
+                            if descubrimientos_buffer:
+                                persistir_descubrimientos(descubrimientos_buffer)
+                                descubrimientos_buffer.clear()
+                            return stats
+
         # Al fin de cada dia: flush buffers (no esperamos al limite del batch)
         if items_buffer:
             persistir_lote(items_buffer, lote_id=lote_id)
@@ -626,4 +773,8 @@ def ingerir_rango(
 
     stats.dias_procesados = total_dias
     stats.tiempo_total_seg = time.time() - t_inicio
+    # S13.5: estimacion final de costo Claude. Es estimacion, no medicion
+    # real (la API no devuelve el costo). Basada en n llamadas exitosas a
+    # clasificar_via_claude * tokens promedio observados en S13.4.3.
+    stats.costo_claude_usd = _estimar_costo_claude(stats.n_llamadas_semanticas)
     return stats

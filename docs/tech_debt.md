@@ -232,3 +232,68 @@ que delegan el detalle a un archivo externo.
       análisis comercial Salud lo requiere para limpiar input).
 
 ---
+
+## TD-05 — Cobertura de `unit_codes` en meses lejanos
+
+**Detectado en**: Sprint S13.5 reconnaissance (2026-05-24).
+**Estado**: abierto.
+**Origen**: side-finding del reconnaissance del primer sprint de
+backfill histórico. El filtro pre-detalle del ingestor depende del
+seed `config/organismos_ohiggins.csv` + tabla
+`organismos_ohiggins_auto` (poblada por auto-discovery del cron
+diario con `--discovery-sample-size 25`).
+
+El seed se construyó durante S13.0 con sampling de marzo 2026. Los
+unit_codes que existían en meses anteriores pero no aparecieron en el
+sampling de marzo no están en el seed. La tabla auto-discovery solo
+crece "hacia adelante" en el tiempo (el cron diario procesa fechas
+recientes).
+
+**Riesgo concreto**: para los sprints **S13.7 (diciembre 2025) hacia
+atrás**, puede haber unidades de compra O'Higgins ya extintas o con
+codigo distinto al de marzo 2026, que el seed actual no captura. El
+filtro `_filtrar_listado()` descarta esas licitaciones antes de pegar
+el detalle, sin warning. **Cobertura silenciosamente baja**.
+
+### Métrica para detección temprana (implementada en S13.5)
+
+El script `scripts/s13_5_backfill_feb2026.py` (y los siguientes
+sprints) reporta `ratio_cobertura = n_filtrados / n_listados` al
+cierre del run. Baseline esperado de Feb 2026 vs marzo-mayo 2026
+(donde el seed es óptimo): ratio similar (~0.05-0.10 en una región
+chica).
+
+- Si Feb 2026 da ratio similar al baseline → seed cubre bien Feb.
+  Continuar con S13.6 (ene 2026).
+- Si Feb 2026 da ratio < 50% del baseline → seed está perdiendo
+  unidades. **PAUSAR backfill** y ejecutar auto-discovery profundo
+  antes de avanzar a S13.6.
+
+### Alcance del refactor para auto-discovery profundo (si se gatilla)
+
+1. Workflow temporal `_chore_auto_discovery_profundo.yml` que corre
+   el ingestor por un rango de 7-14 días con `discovery_sample_size`
+   alto (~100 por día) en el mes problemático. Sin clasificación
+   semántica (solo descubrir unit_codes, no procesar items).
+2. Auto-discovery populates `organismos_ohiggins_auto` con los
+   `unit_code` nuevos encontrados.
+3. Re-correr el sprint del mes problemático con el seed enriquecido.
+
+### Out of scope explícito
+
+- Cambiar el algoritmo de filtrado (`_filtrar_listado` sigue siendo
+  válido).
+- Migrar a otro mecanismo de filtrado regional (no es posible — MP
+  API no acepta filtro server-side por región).
+- Hacer auto-discovery a-priori para los 10 meses (caro: ~100 calls/día
+  × 30 días × 10 meses = 30k calls extra de MP API).
+
+### Acción del Director
+
+- [ ] Monitorear `ratio_cobertura` en el reporte final de cada
+      sprint S13.5 - S13.14.
+- [ ] Si en algún sprint el ratio cae bajo 50% del baseline, gatillar
+      el workflow de auto-discovery profundo del mes en cuestión
+      antes de avanzar al siguiente.
+
+---
